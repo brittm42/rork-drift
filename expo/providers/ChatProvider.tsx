@@ -197,7 +197,10 @@ export const [ChatProvider, useChat] = createContextHook(() => {
       });
 
       const autoApply = response.actions.filter(
-        (a) => a.kind !== "propose_reshape" && a.kind !== "answer"
+        (a) =>
+          a.kind !== "propose_reshape" &&
+          a.kind !== "do_reshape" &&
+          a.kind !== "answer"
       );
       const appliedIds: string[] = [];
       for (let i = 0; i < response.actions.length; i++) {
@@ -208,7 +211,9 @@ export const [ChatProvider, useChat] = createContextHook(() => {
         }
       }
 
-      const hasPropose = response.actions.some((a) => a.kind === "propose_reshape");
+      const hasPropose = response.actions.some(
+        (a) => a.kind === "propose_reshape" || a.kind === "do_reshape"
+      );
 
       const botMsg: ChatMessage = {
         id: uid(),
@@ -261,7 +266,9 @@ export const [ChatProvider, useChat] = createContextHook(() => {
         prev.map((m) => (m.id === messageId ? { ...m, pending_confirm: false } : m))
       );
       if (!accept) return;
-      const proposal = msg.actions.find((a) => a.kind === "propose_reshape");
+      const proposal = msg.actions.find(
+        (a) => a.kind === "propose_reshape" || a.kind === "do_reshape"
+      );
       if (!proposal) return;
       await reroute();
       save((prev) => [

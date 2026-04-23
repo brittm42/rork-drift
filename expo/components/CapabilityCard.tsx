@@ -1,8 +1,8 @@
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
-import { ChevronRight, Plus, Sparkles } from "lucide-react-native";
-import React, { useCallback, useMemo } from "react";
-import { Animated, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { ChevronDown, ChevronRight, Plus, Sparkles } from "lucide-react-native";
+import React, { useCallback, useMemo, useRef } from "react";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Colors } from "@/constants/colors";
 import { useProfile } from "@/providers/ProfileProvider";
 import { useSettings } from "@/providers/SettingsProvider";
@@ -15,13 +15,28 @@ type Suggestion = {
 };
 
 const MAX_VISIBLE = 3;
-const ROTATE_MS = 9_000;
+
+function pickStable<T>(list: T[], n: number, seed: number): T[] {
+  if (list.length <= n) return list;
+  const out: T[] = [];
+  const used = new Set<number>();
+  let s = seed || 1;
+  while (out.length < n && used.size < list.length) {
+    s = (s * 9301 + 49297) % 233280;
+    const idx = Math.floor((s / 233280) * list.length);
+    if (used.has(idx)) continue;
+    used.add(idx);
+    out.push(list[idx]);
+  }
+  return out;
+}
 
 export function CapabilityCard() {
   const router = useRouter();
   const { profile } = useProfile();
   const { settings } = useSettings();
-  const [rotation, setRotation] = React.useState<number>(0);
+  const [expanded, setExpanded] = React.useState<boolean>(false);
+  const seedRef = useRef<number>(Math.floor(Math.random() * 1_000_000));
 
   const suggestions = useMemo<Suggestion[]>(() => {
     const list: Suggestion[] = [];
@@ -115,22 +130,10 @@ export function CapabilityCard() {
     return list;
   }, [profile, settings.calendar_enabled, settings.calendar_write_enabled, settings.mapkit_token]);
 
-  const visible = useMemo(() => {
-    if (suggestions.length === 0) return [];
-    if (suggestions.length <= MAX_VISIBLE) return suggestions;
-    const start = rotation % suggestions.length;
-    const out: Suggestion[] = [];
-    for (let i = 0; i < MAX_VISIBLE; i++) {
-      out.push(suggestions[(start + i) % suggestions.length]);
-    }
-    return out;
-  }, [suggestions, rotation]);
-
-  React.useEffect(() => {
-    if (suggestions.length <= MAX_VISIBLE) return;
-    const t = setInterval(() => setRotation((n) => n + MAX_VISIBLE), ROTATE_MS);
-    return () => clearInterval(t);
-  }, [suggestions.length]);
+  const visible = useMemo(
+    () => pickStable(suggestions, MAX_VISIBLE, seedRef.current),
+    [suggestions]
+  );
 
   const handleAdd = useCallback(
     (type: string) => {
@@ -158,11 +161,20 @@ export function CapabilityCard() {
     );
   }
 
+  const toggle = useCallback(() => {
+    if (Platform.OS !== "web") Haptics.selectionAsync();
+    setExpanded((v) => !v);
+  }, []);
+
   return (
     <View style={styles.wrap}>
       <Pressable
-        onPress={() => router.push("/profile")}
-        style={({ pressed }) => [styles.header, pressed && { opacity: 0.85 }]}
+        onPress={toggle}
+        style={({ pressed }) => [
+          styles.header,
+          expanded && styles.headerExpanded,
+          pressed && { opacity: 0.85 },
+        ]}
         testID="capability-card"
       >
         <View style={styles.headerIcon}>
@@ -172,28 +184,35 @@ export function CapabilityCard() {
           <Text style={styles.headerLabel}>DO MORE TOGETHER</Text>
           <Text style={styles.headerText}>Tell me more about you</Text>
         </View>
-        <ChevronRight size={14} color={Colors.inkMuted} strokeWidth={2} />
+        <ChevronDown
+          size={16}
+          color={Colors.inkMuted}
+          strokeWidth={2}
+          style={expanded ? styles.chevronOpen : undefined}
+        />
       </Pressable>
 
-      <Animated.View style={styles.listCard}>
-        {visible.map((s) => (
-          <Pressable
-            key={s.id}
-            onPress={() => handleAdd(s.type)}
-            style={({ pressed }) => [styles.suggestRow, pressed && { opacity: 0.7 }]}
-            testID={`capability-suggest-${s.id}`}
-          >
-            <View style={styles.suggestIcon}>
-              <Plus size={12} color={Colors.sageDeep} strokeWidth={2.25} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.suggestTitle}>{s.title}</Text>
-              <Text style={styles.suggestSub}>{s.sub}</Text>
-            </View>
-            <ChevronRight size={13} color={Colors.inkFaint} strokeWidth={2} />
-          </Pressable>
-        ))}
-      </Animated.View>
+      {expanded && (
+        <View style={styles.listCard}>
+          {visible.map((s) => (
+            <Pressable
+              key={s.id}
+              onPress={() => handleAdd(s.type)}
+              style={({ pressed }) => [styles.suggestRow, pressed && { opacity: 0.7 }]}
+              testID={`capability-suggest-${s.id}`}
+            >
+              <View style={styles.suggestIcon}>
+                <Plus size={12} color={Colors.sageDeep} strokeWidth={2.25} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.suggestTitle}>{s.title}</Text>
+                <Text style={styles.suggestSub}>{s.sub}</Text>
+              </View>
+              <ChevronRight size={13} color={Colors.inkFaint} strokeWidth={2} />
+            </Pressable>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
@@ -207,10 +226,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     backgroundColor: Colors.creamSoft,
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
+    borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Colors.border,
+  },
+  headerExpanded: {
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+  },
+  chevronOpen: {
+    transform: [{ rotate: "180deg" }],
   },
   headerIcon: {
     width: 26,

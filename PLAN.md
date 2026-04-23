@@ -5,12 +5,13 @@
 - [x] Auto-plan safety net: if today's plan is missing on open, generate quietly (no duplicate notification).
 - [x] Pre-notification generation is still deferred until backend is available — documented for user.
 - [x] "Re-route my day" button removed. Chat handles all mid-day adjustments.
+- [x] Plan sticks once generated. Chat `do_reshape` is promoted to a confirm-required proposal — never auto re-routes without user acceptance.
 - [x] True chronological "On your plate today":
   - All-day calendar items grouped at the top.
   - Events, plan tasks, and anchors merged chronologically.
   - Tasks show checkbox; anchors show "anchor" tag; calendar events show "event" tag.
 - [x] Plan header line ("Happy birthday…" style) removed below the Do More Together card.
-- [x] Rotating "Do more together" suggestions (up to 3 at a time) covering locations, anchors, household, tendencies, recurring, durations, energy, work, calendar write, and MapKit.
+- [x] Collapsible "Do more together" card. Default collapsed; tap to expand. Stable 3-suggestion sample per app session (no mid-session rotation).
 - [x] ChatDock fully opaque background (solid fill + top divider).
 - [x] Task capture happens via chat — no separate + FAB on Today.
 
