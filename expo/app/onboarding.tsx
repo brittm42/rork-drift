@@ -452,6 +452,7 @@ export default function OnboardingScreen() {
               selectedTime={selectedTime}
               onSelect={setSelectedTime}
               onNext={() => goto("calendar")}
+              timeFormat={settings.time_format ?? "12h"}
             />
           )}
 
@@ -802,10 +803,12 @@ function TimeStep({
   selectedTime,
   onSelect,
   onNext,
+  timeFormat,
 }: {
   selectedTime: string;
   onSelect: (t: string) => void;
   onNext: () => void;
+  timeFormat: "12h" | "24h";
 }) {
   return (
     <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -824,7 +827,7 @@ function TimeStep({
               style={[styles.timeChip, on && styles.timeChipOn]}
             >
               <Text style={[styles.timeChipText, on && styles.timeChipTextOn]}>
-                {formatHHMM(t, settings.time_format)}
+                {formatHHMM(t, timeFormat)}
               </Text>
             </Pressable>
           );
