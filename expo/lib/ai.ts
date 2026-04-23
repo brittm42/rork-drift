@@ -1,6 +1,6 @@
 import { createGateway, generateObject } from "ai";
 import { z } from "zod";
-import type { CalendarEventSnapshot, Task, UserProfile } from "@/types";
+import type { CalendarEventSnapshot, ChatAction, Task, UserProfile } from "@/types";
 
 const TOOLKIT_URL = process.env.EXPO_PUBLIC_TOOLKIT_URL;
 const SECRET_KEY = process.env.EXPO_PUBLIC_RORK_TOOLKIT_SECRET_KEY;
@@ -55,7 +55,7 @@ function profileBrief(profile: UserProfile | null | undefined): string {
   }
   if (profile.recurring_obligations.length) {
     parts.push(
-      `Recurring life admin: ${profile.recurring_obligations
+      `Recurring items: ${profile.recurring_obligations
         .map((o) => `${o.title} (${o.cadence})`)
         .join("; ")}`
     );
@@ -75,6 +75,14 @@ function profileBrief(profile: UserProfile | null | undefined): string {
     );
   }
   if (profile.energy_pattern) parts.push(`Energy: ${profile.energy_pattern}`);
+  if (profile.memories.length) {
+    parts.push(
+      `What I remember: ${profile.memories
+        .slice(0, 25)
+        .map((m) => m.text)
+        .join(" | ")}`
+    );
+  }
   if (profile.notes.length) parts.push(`Notes: ${profile.notes.join(" | ")}`);
   return parts.length ? parts.join("\n") : "No profile yet.";
 }
@@ -123,6 +131,7 @@ type PlanInput = {
   reroute?: {
     completedToday: string[];
     remainingEvents: CalendarEventSnapshot[];
+    intent?: string;
   };
 };
 
@@ -158,7 +167,7 @@ Generate a prioritized plan for today:
   const rerouteInstructions = reroute
     ? `\n\nThe user is re-routing mid-day. Current time: ${now.toISOString()}.
 Tasks already completed today: ${JSON.stringify(reroute.completedToday)}
-Remaining calendar events: ${JSON.stringify(reroute.remainingEvents)}
+Remaining calendar events: ${JSON.stringify(reroute.remainingEvents)}${reroute.intent ? `\nUser intent: ${reroute.intent}` : ""}
 Reason forward only — acknowledge what's left, never dwell on what didn't happen.`
     : "";
 
@@ -239,13 +248,26 @@ const onboardingExtractSchema = z.object({
   ),
   work: z
     .object({
-      mode: z.enum(["remote", "hybrid", "office", "flexible", "unspecified"]),
+      mode: z.enum([
+        "remote",
+        "hybrid",
+        "office",
+        "flexible",
+        "student",
+        "caregiver",
+        "stay_at_home",
+        "unemployed",
+        "retired",
+        "other",
+        "unspecified",
+      ]),
       typical_hours: z.string().nullable(),
     })
     .nullable(),
   rules: z.array(z.string()),
   energy_pattern: z.string().nullable(),
   notes: z.array(z.string()),
+  follow_up_question: z.string().nullable(),
 });
 
 export type OnboardingExtract = z.infer<typeof onboardingExtractSchema>;
@@ -272,6 +294,7 @@ export async function extractOnboardingFacts(params: {
     rules: [],
     energy_pattern: null,
     notes: [],
+    follow_up_question: null,
   };
   try {
     const { object } = await generateObject({
@@ -289,10 +312,11 @@ Rules:
 - name: only if this topic is "name" or they clearly stated their name.
 - household: people/pets they live with. kind = partner | child | pet | other. detail can include age, school, breed, or schedule shorthand.
 - anchors: recurring commitments with a fixed day/time like "school pickup 3:30 M-F", "therapy Thursdays 10am". days use mon/tue/wed/thu/fri/sat/sun. time is "HH:MM" 24h or null if unclear. buffer_minutes only if they stated it.
-- work: mode from remote/hybrid/office/flexible/unspecified; typical_hours like "9-5" if stated.
+- work: mode from remote/hybrid/office/flexible/student/caregiver/stay_at_home/unemployed/retired/other/unspecified. Use student for students, caregiver for full-time caregiving, stay_at_home for stay-at-home parents, retired for retirees, unemployed if between jobs. typical_hours like "9-5" if stated.
 - rules: short imperative strings like "25 min buffer from gym to school", "no meetings after 4pm".
 - energy_pattern: short phrase if stated ("sharp mornings, afternoon dip").
-- notes: catch-all for useful context that doesn't fit the above.`,
+- notes: catch-all for useful context that doesn't fit the above.
+- follow_up_question: ONLY set if the user gave a real answer but it was ambiguous or incomplete enough that one short clarifying question would materially improve the extraction. Example: user says "just my husband and the dog" on household → null (fine). User says "kids" → "How many kids, and roughly what ages?". User says "it's complicated" on work → "In a sentence, what fills most of your days right now?". Keep it to one sentence, warm, never prying. If the reply was skip/none/clear, leave null.`,
     });
     return object;
   } catch (e) {
@@ -330,15 +354,11 @@ Return:
     const bullets: string[] = [];
     if (profile.name) bullets.push(`You go by ${profile.name}`);
     if (profile.household.length)
-      bullets.push(
-        `Household: ${profile.household.map((h) => h.name).join(", ")}`
-      );
+      bullets.push(`Household: ${profile.household.map((h) => h.name).join(", ")}`);
     if (profile.anchors.length)
       bullets.push(
         profile.anchors
-          .map(
-            (a) => `${a.title}${a.time ? ` at ${a.time}` : ""} ${a.days.join("/")}`
-          )
+          .map((a) => `${a.title}${a.time ? ` at ${a.time}` : ""} ${a.days.join("/")}`)
           .join(" · ")
       );
     if (profile.work.mode !== "unspecified") bullets.push(`Work: ${profile.work.mode}`);
@@ -348,4 +368,172 @@ Return:
       closer: "Sound right?",
     };
   }
+}
+
+// ---- Conversational chat on Today ------------------------------------------
+
+const chatActionSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("answer") }),
+  z.object({
+    kind: z.literal("add_task"),
+    raw: z.string(),
+    scheduled_for: z.enum(["today", "tomorrow", "inbox"]),
+    confirmation: z.string(),
+  }),
+  z.object({
+    kind: z.literal("save_memory"),
+    text: z.string(),
+    category: z.enum([
+      "preference",
+      "fact",
+      "routine",
+      "health",
+      "relationship",
+      "other",
+    ]),
+    confirmation: z.string(),
+  }),
+  z.object({
+    kind: z.literal("add_anchor"),
+    title: z.string(),
+    time: z.string().nullable(),
+    days: z.array(WEEKDAYS),
+    buffer_minutes: z.number().nullable(),
+    confirmation: z.string(),
+  }),
+  z.object({
+    kind: z.literal("add_recurring"),
+    title: z.string(),
+    cadence: z.string(),
+    confirmation: z.string(),
+  }),
+  z.object({
+    kind: z.literal("add_rule"),
+    text: z.string(),
+    confirmation: z.string(),
+  }),
+  z.object({
+    kind: z.literal("add_household"),
+    name: z.string(),
+    relation: z.enum(["partner", "child", "pet", "other"]),
+    detail: z.string().nullable(),
+    confirmation: z.string(),
+  }),
+  z.object({
+    kind: z.literal("add_location"),
+    label: z.string(),
+    address: z.string().nullable(),
+    confirmation: z.string(),
+  }),
+  z.object({
+    kind: z.literal("do_reshape"),
+    summary: z.string(),
+  }),
+  z.object({
+    kind: z.literal("propose_reshape"),
+    summary: z.string(),
+    details: z.string(),
+  }),
+  z.object({
+    kind: z.literal("create_calendar_event"),
+    title: z.string(),
+    start_time: z.string(),
+    end_time: z.string(),
+    confirmation: z.string(),
+  }),
+]);
+
+const chatResponseSchema = z.object({
+  message: z.string(),
+  actions: z.array(chatActionSchema).max(5),
+});
+
+export type ChatResponse = z.infer<typeof chatResponseSchema>;
+
+export async function chatTurn(params: {
+  userMessage: string;
+  recentTurns: { from: "user" | "bot"; text: string }[];
+  profile: UserProfile;
+  tasks: Task[];
+  events: CalendarEventSnapshot[];
+  planHeader: string | null;
+  now: Date;
+  canWriteCalendar: boolean;
+}): Promise<ChatResponse> {
+  const {
+    userMessage,
+    recentTurns,
+    profile,
+    tasks,
+    events,
+    planHeader,
+    now,
+    canWriteCalendar,
+  } = params;
+
+  const incompleteTasks = tasks
+    .filter((t) => !t.is_complete)
+    .slice(0, 20)
+    .map((t) => ({ title: t.title, scheduled_for: t.scheduled_for ?? "inbox" }));
+
+  const transcript = recentTurns
+    .slice(-10)
+    .map((t) => `${t.from === "user" ? "User" : "You"}: ${t.text}`)
+    .join("\n");
+
+  try {
+    const { object } = await generateObject({
+      model: gateway(SONNET),
+      schema: chatResponseSchema,
+      prompt: `You are Drift — a calm, warm, slightly personal chief-of-staff for ${profile.name ?? "the user"}. You already know them; act like it. Use their name occasionally. Never chipper, never clinical. Reply in 1–2 short sentences unless a question genuinely needs more.
+
+Current time: ${now.toISOString()}
+Today's plan header: ${planHeader ? JSON.stringify(planHeader) : "(no plan yet)"}
+Today's remaining tasks: ${JSON.stringify(incompleteTasks)}
+Today's calendar: ${JSON.stringify(events)}
+Can create calendar events: ${canWriteCalendar}
+
+What I know about them:
+${profileBrief(profile)}
+
+Recent conversation:
+${transcript || "(just getting started today)"}
+
+User just said: ${JSON.stringify(userMessage)}
+
+Your job is to produce:
+1) A short conversational "message" reply.
+2) An "actions" array — structured things to do. One message can trigger multiple actions (e.g. answer + save_memory). Keep action count small.
+
+Action rules:
+- add_task: for any task capture ("remind me tomorrow to grab sunscreen" → scheduled_for: "tomorrow"). "confirmation" is a short chip label like "Added to tomorrow morning".
+- save_memory: for durable facts about the person's life ("I got a dog that needs grooming every 4 weeks", "my home is in Austin"). DO NOT save one-off tasks as memories. "confirmation" chip like "Saved: dog grooming every 4 weeks".
+- add_anchor: ONLY for fixed-day-and-time commitments ("school pickup 3:30 M-F"). Not for vague "I try to work out mornings".
+- add_recurring: for cadence-based items without a specific time ("dog grooming every 4 weeks", "haircut every 6 weeks"). cadence is a short phrase.
+- add_rule: for planning constraints ("no meetings after 4pm", "25 min buffer to school pickup").
+- add_household / add_location: when the user introduces new people/pets or places.
+- do_reshape: use for soft shuffles the user asks for ("clear 2 hours this afternoon for the gym") that don't touch a hard anchor. The "summary" is what you're doing. Triggers an automatic reroute.
+- propose_reshape: use when the request would move a hard anchor or create a calendar event and needs confirmation first. Include a plain-language details field.
+- create_calendar_event: only when Can create calendar events is true AND the user explicitly wants an event on their calendar, or accepted a propose_reshape. start_time and end_time must be full ISO strings based on current time.
+- answer: default fallback when no action is needed.
+
+Hard rules:
+- Never invent facts. If the user asked something and you don't know, say so briefly.
+- Never say you "saved" something unless you emitted the action for it.
+- Keep message calm and forward-looking. No emojis.
+- If user is vague ("plan me a better afternoon"), do a do_reshape with a concrete summary of what you'll try.`,
+    });
+    return object;
+  } catch (e) {
+    console.log("[ai] chatTurn failed:", e);
+    return {
+      message:
+        "I hit a snag just now — can you try that again in a moment?",
+      actions: [],
+    };
+  }
+}
+
+export function actionId(a: ChatAction, idx: number): string {
+  return `${a.kind}_${idx}`;
 }

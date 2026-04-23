@@ -1,6 +1,5 @@
-import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
-import { Check, Plus, RefreshCw, Sparkles } from "lucide-react-native";
+import { Anchor as AnchorIcon, Check, RefreshCw, Sparkles } from "lucide-react-native";
 import React, { useCallback, useMemo } from "react";
 import {
   ActivityIndicator,
@@ -15,10 +14,12 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "@/constants/colors";
 import { usePlan } from "@/providers/PlanProvider";
+import { useProfile } from "@/providers/ProfileProvider";
 import { useSettings } from "@/providers/SettingsProvider";
 import { useTasks } from "@/providers/TasksProvider";
-import type { PlanItem, Task } from "@/types";
+import type { Anchor, CalendarEventSnapshot, PlanItem, Task, Weekday } from "@/types";
 import { CapabilityCard } from "@/components/CapabilityCard";
+import { ChatDock } from "@/components/ChatDock";
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -38,12 +39,88 @@ function formatToday(): string {
   });
 }
 
+const WEEKDAY_KEYS: Weekday[] = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+
+type BlendedItem =
+  | {
+      kind: "event";
+      id: string;
+      title: string;
+      start: number;
+      all_day: boolean;
+      label: string;
+    }
+  | { kind: "anchor"; id: string; title: string; start: number; label: string };
+
+function todayWeekday(): Weekday {
+  return WEEKDAY_KEYS[new Date().getDay()];
+}
+
+function blendEventsAndAnchors(
+  events: CalendarEventSnapshot[],
+  anchors: Anchor[]
+): BlendedItem[] {
+  const dayKey = todayWeekday();
+  const now = new Date();
+  const items: BlendedItem[] = [];
+
+  for (const e of events) {
+    const start = new Date(e.start_time).getTime();
+    items.push({
+      kind: "event",
+      id: `e_${e.id}`,
+      title: e.title,
+      start: e.all_day ? 0 : start,
+      all_day: e.all_day,
+      label: e.all_day
+        ? "All day"
+        : new Date(e.start_time).toLocaleTimeString(undefined, {
+            hour: "numeric",
+            minute: "2-digit",
+          }),
+    });
+  }
+
+  for (const a of anchors) {
+    if (!a.days.includes(dayKey)) continue;
+    let start = Number.MAX_SAFE_INTEGER;
+    let label = "Anchor";
+    if (a.time) {
+      const [hh, mm] = a.time.split(":").map((n) => parseInt(n, 10));
+      const d = new Date(now);
+      d.setHours(Number.isFinite(hh) ? hh : 9, Number.isFinite(mm) ? mm : 0, 0, 0);
+      start = d.getTime();
+      label = d.toLocaleTimeString(undefined, {
+        hour: "numeric",
+        minute: "2-digit",
+      });
+    }
+    items.push({
+      kind: "anchor",
+      id: `a_${a.id}`,
+      title: a.title,
+      start,
+      label,
+    });
+  }
+
+  // All-day first; timed items sorted chronologically
+  items.sort((a, b) => {
+    const aAll = a.kind === "event" && a.all_day;
+    const bAll = b.kind === "event" && b.all_day;
+    if (aAll !== bAll) return aAll ? -1 : 1;
+    return a.start - b.start;
+  });
+
+  return items;
+}
+
 export default function TodayScreen() {
   const insets = useSafeAreaInsets();
-  const router = useRouter();
   const { plan, generate, reroute, isGenerating, error } = usePlan();
   const { incomplete, completedToday, byId, completeTask, uncompleteTask } = useTasks();
   const { settings } = useSettings();
+  const { profile } = useProfile();
 
   const planTasks = useMemo(() => {
     if (!plan) return [] as { item: PlanItem; task: Task }[];
@@ -57,6 +134,11 @@ export default function TodayScreen() {
 
   const activePlanTasks = planTasks.filter((p) => !p.task.is_complete);
   const donePlanTasks = planTasks.filter((p) => p.task.is_complete);
+
+  const blended = useMemo(
+    () => blendEventsAndAnchors(plan?.calendar_context ?? [], profile.anchors),
+    [plan?.calendar_context, profile.anchors]
+  );
 
   const handleGenerate = useCallback(async () => {
     if (Platform.OS !== "web") Haptics.selectionAsync();
@@ -92,7 +174,7 @@ export default function TodayScreen() {
       <ScrollView
         contentContainerStyle={{
           paddingTop: insets.top + 16,
-          paddingBottom: 140,
+          paddingBottom: 240,
           paddingHorizontal: 24,
         }}
         refreshControl={
@@ -111,28 +193,35 @@ export default function TodayScreen() {
 
         {plan ? (
           <>
-            <View style={styles.headerCard}>
-              <Sparkles size={14} color={Colors.sageDeep} strokeWidth={2} />
-              <Text style={styles.headerCardText}>{plan.header_note}</Text>
+            <View style={styles.headerLine}>
+              <Sparkles size={13} color={Colors.sageDeep} strokeWidth={2} />
+              <Text style={styles.headerLineText}>{plan.header_note}</Text>
             </View>
 
-            {plan.calendar_context.length > 0 && (
-              <View style={styles.calendarStrip}>
-                <Text style={styles.calendarStripLabel}>On your calendar</Text>
-                {plan.calendar_context.slice(0, 4).map((e) => (
-                  <View key={e.id} style={styles.calendarEvent}>
-                    <View style={styles.calendarDot} />
-                    <Text style={styles.calendarEventTime} numberOfLines={1}>
-                      {e.all_day
-                        ? "All day"
-                        : new Date(e.start_time).toLocaleTimeString(undefined, {
-                            hour: "numeric",
-                            minute: "2-digit",
-                          })}
+            {blended.length > 0 && (
+              <View style={styles.scheduleStrip}>
+                <Text style={styles.stripLabel}>On your plate today</Text>
+                {blended.slice(0, 6).map((b) => (
+                  <View key={b.id} style={styles.scheduleRow}>
+                    {b.kind === "anchor" ? (
+                      <AnchorIcon
+                        size={10}
+                        color={Colors.sageDeep}
+                        strokeWidth={2.25}
+                        style={{ width: 10 }}
+                      />
+                    ) : (
+                      <View style={styles.dot} />
+                    )}
+                    <Text style={styles.scheduleTime} numberOfLines={1}>
+                      {b.label}
                     </Text>
-                    <Text style={styles.calendarEventTitle} numberOfLines={1}>
-                      {e.title}
+                    <Text style={styles.scheduleTitle} numberOfLines={1}>
+                      {b.title}
                     </Text>
+                    {b.kind === "anchor" && (
+                      <Text style={styles.anchorTag}>anchor</Text>
+                    )}
                   </View>
                 ))}
               </View>
@@ -221,20 +310,7 @@ export default function TodayScreen() {
         )}
       </ScrollView>
 
-      <Pressable
-        onPress={() => {
-          if (Platform.OS !== "web") Haptics.selectionAsync();
-          router.push("/add-task");
-        }}
-        style={({ pressed }) => [
-          styles.fab,
-          { bottom: insets.bottom + 92 },
-          pressed && { transform: [{ scale: 0.94 }] },
-        ]}
-        testID="fab-add"
-      >
-        <Plus size={22} color={Colors.paper} strokeWidth={2.25} />
-      </Pressable>
+      <ChatDock planHeader={plan?.header_note ?? null} />
     </View>
   );
 }
@@ -298,7 +374,7 @@ function EmptyState({
           ? calendarEnabled
             ? "Drift will read your calendar and write a plan that fits around it."
             : "Drift will plan the day from what's in your inbox."
-          : "Add a task from the + button, then Drift will draw up a plan."}
+          : "Tell Drift anything below. It'll handle the rest."}
       </Text>
       {error && <Text style={styles.errorText}>Couldn&apos;t generate a plan. Tap to try again.</Text>}
       <Pressable
@@ -342,54 +418,60 @@ const styles = StyleSheet.create({
     letterSpacing: -0.8,
     marginBottom: 22,
   },
-  headerCard: {
+  headerLine: {
     flexDirection: "row",
-    gap: 10,
+    gap: 8,
     alignItems: "flex-start",
-    backgroundColor: Colors.creamSoft,
-    padding: 16,
-    borderRadius: 14,
-    marginBottom: 16,
+    marginBottom: 20,
+    paddingRight: 8,
   },
-  headerCardText: {
+  headerLineText: {
     flex: 1,
     fontSize: 15,
     color: Colors.sageDark,
     lineHeight: 22,
     fontWeight: "500",
   },
-  calendarStrip: {
-    marginBottom: 20,
+  scheduleStrip: {
+    marginBottom: 22,
   },
-  calendarStripLabel: {
+  stripLabel: {
     fontSize: 10,
     letterSpacing: 1.6,
     color: Colors.inkMuted,
     fontWeight: "600",
     marginBottom: 8,
   },
-  calendarEvent: {
+  scheduleRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
     paddingVertical: 6,
   },
-  calendarDot: {
+  dot: {
     width: 5,
     height: 5,
     borderRadius: 3,
     backgroundColor: Colors.sage,
+    marginLeft: 2,
+    marginRight: 3,
   },
-  calendarEventTime: {
+  scheduleTime: {
     fontSize: 12,
     color: Colors.inkSoft,
     fontVariant: ["tabular-nums"],
     width: 74,
   },
-  calendarEventTitle: {
+  scheduleTitle: {
     flex: 1,
     fontSize: 13,
     color: Colors.inkSoft,
+  },
+  anchorTag: {
+    fontSize: 9,
+    letterSpacing: 1.2,
+    color: Colors.sageDeep,
+    fontWeight: "700",
   },
   progressRow: {
     flexDirection: "row",
@@ -414,9 +496,7 @@ const styles = StyleSheet.create({
     color: Colors.amber,
     fontWeight: "700",
   },
-  planList: {
-    gap: 4,
-  },
+  planList: { gap: 4 },
   planRow: {
     flexDirection: "row",
     paddingVertical: 16,
@@ -424,10 +504,7 @@ const styles = StyleSheet.create({
     borderTopColor: Colors.border,
     gap: 14,
   },
-  checkHit: {
-    paddingTop: 22,
-    paddingRight: 4,
-  },
+  checkHit: { paddingTop: 22, paddingRight: 4 },
   checkBox: {
     width: 22,
     height: 22,
@@ -443,9 +520,7 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: Colors.urgent,
   },
-  planRowBody: {
-    flex: 1,
-  },
+  planRowBody: { flex: 1 },
   planRowHead: {
     flexDirection: "row",
     alignItems: "center",
@@ -613,20 +688,5 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
     letterSpacing: 0.2,
-  },
-  fab: {
-    position: "absolute",
-    right: 22,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: Colors.sageDeep,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: Colors.forest,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    elevation: 6,
   },
 });

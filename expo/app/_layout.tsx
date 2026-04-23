@@ -9,6 +9,7 @@ import { SettingsProvider, useSettings } from "@/providers/SettingsProvider";
 import { TasksProvider } from "@/providers/TasksProvider";
 import { PlanProvider } from "@/providers/PlanProvider";
 import { ProfileProvider } from "@/providers/ProfileProvider";
+import { ChatProvider } from "@/providers/ChatProvider";
 import { Colors } from "@/constants/colors";
 
 SplashScreen.preventAutoHideAsync();
@@ -81,12 +82,14 @@ export default function RootLayout() {
           <ProfileProvider>
             <TasksProvider>
               <PlanProvider>
-                <GestureHandlerRootView style={{ flex: 1, backgroundColor: Colors.background }}>
-                  <StatusBar style="dark" />
-                  <OnboardingGate>
-                    <RootLayoutNav />
-                  </OnboardingGate>
-                </GestureHandlerRootView>
+                <ChatProvider>
+                  <GestureHandlerRootView style={{ flex: 1, backgroundColor: Colors.background }}>
+                    <StatusBar style="dark" />
+                    <OnboardingGate>
+                      <RootLayoutNav />
+                    </OnboardingGate>
+                  </GestureHandlerRootView>
+                </ChatProvider>
               </PlanProvider>
             </TasksProvider>
           </ProfileProvider>

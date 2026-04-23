@@ -10,12 +10,14 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Check, ChevronDown, ChevronRight, User } from "lucide-react-native";
+import { Check, ChevronDown, ChevronRight, Eraser, User } from "lucide-react-native";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { Colors } from "@/constants/colors";
 import { useSettings } from "@/providers/SettingsProvider";
+import { useChat } from "@/providers/ChatProvider";
 import {
+  findWritableCalendarId,
   getCalendarPermissionStatus,
   listCalendars,
   requestCalendarPermission,
@@ -38,6 +40,7 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { settings, update } = useSettings();
+  const { clear: clearChat, todayMessages, messages } = useChat();
   const [timeOpen, setTimeOpen] = useState<boolean>(false);
   const [cals, setCals] = useState<CalendarT[]>([]);
   const [permStatus, setPermStatus] = useState<"granted" | "denied" | "undetermined">("undetermined");
@@ -76,7 +79,7 @@ export default function SettingsScreen() {
   const handleCalendarToggle = useCallback(
     async (value: boolean) => {
       if (!value) {
-        update({ calendar_enabled: false });
+        update({ calendar_enabled: false, calendar_write_enabled: false });
         return;
       }
       const granted = await requestCalendarPermission();
@@ -101,6 +104,34 @@ export default function SettingsScreen() {
     [settings.selected_calendar_ids, update]
   );
 
+  const handleCalWriteToggle = useCallback(
+    async (value: boolean) => {
+      if (!value) {
+        update({ calendar_write_enabled: false });
+        return;
+      }
+      if (!settings.calendar_enabled) {
+        await handleCalendarToggle(true);
+      }
+      const granted = await requestCalendarPermission();
+      if (!granted) {
+        Alert.alert(
+          "Calendar access needed",
+          "Enable calendar access first so Drift can add events."
+        );
+        return;
+      }
+      const writableId = await findWritableCalendarId(settings.default_write_calendar_id);
+      update({ calendar_write_enabled: true, default_write_calendar_id: writableId });
+    },
+    [
+      settings.calendar_enabled,
+      settings.default_write_calendar_id,
+      update,
+      handleCalendarToggle,
+    ]
+  );
+
   const toggleCalendar = useCallback(
     (id: string) => {
       if (Platform.OS !== "web") Haptics.selectionAsync();
@@ -122,6 +153,27 @@ export default function SettingsScreen() {
     }
     return Array.from(groups.entries());
   }, [cals]);
+
+  const writableCals = useMemo(() => cals.filter((c) => c.allowsModifications), [cals]);
+
+  const handleClearChat = useCallback(() => {
+    const go = () => {
+      clearChat();
+      update({ chat_last_cleared_at: new Date().toISOString() });
+    };
+    if (Platform.OS === "web") {
+      go();
+      return;
+    }
+    Alert.alert(
+      "Clear chat history?",
+      "This removes our recent conversation. What I remember about you stays in your profile.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Clear", style: "destructive", onPress: go },
+      ]
+    );
+  }, [clearChat, update]);
 
   return (
     <ScrollView
@@ -147,7 +199,7 @@ export default function SettingsScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.rowLabel}>Your profile</Text>
             <Text style={styles.rowSub}>
-              Household, anchors, rules, recurring items
+              Household, anchors, rules, memories, recurring items
             </Text>
           </View>
           <ChevronRight size={16} color={Colors.inkFaint} strokeWidth={2} />
@@ -202,10 +254,45 @@ export default function SettingsScreen() {
       <Section title="Calendar">
         <RowToggle
           label="Read my calendar"
-          sub="Drift plans around your day. It never writes."
+          sub="Drift plans around your day."
           value={settings.calendar_enabled}
           onChange={handleCalendarToggle}
         />
+        <RowToggle
+          label="Let Drift add events"
+          sub="Gym blocks, appointments, time you ask to protect."
+          value={settings.calendar_write_enabled}
+          onChange={handleCalWriteToggle}
+        />
+        {settings.calendar_write_enabled && writableCals.length > 0 && (
+          <View style={{ marginTop: 4 }}>
+            <Text style={styles.subhead}>WRITE EVENTS TO</Text>
+            {writableCals.map((c) => {
+              const selected =
+                settings.default_write_calendar_id === c.id ||
+                (!settings.default_write_calendar_id && writableCals[0].id === c.id);
+              return (
+                <Pressable
+                  key={c.id}
+                  onPress={() =>
+                    update({ default_write_calendar_id: c.id })
+                  }
+                  style={styles.calRow}
+                >
+                  <View
+                    style={[styles.calDot, { backgroundColor: c.color ?? Colors.sage }]}
+                  />
+                  <Text style={styles.calName} numberOfLines={1}>
+                    {c.title}
+                  </Text>
+                  <View style={[styles.calCheck, selected && styles.calCheckSelected]}>
+                    {selected && <Check size={12} color={Colors.paper} strokeWidth={3} />}
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
         {settings.calendar_enabled && permStatus === "granted" && (
           <View style={{ marginTop: 8 }}>
             <Text style={styles.subhead}>INCLUDE CALENDARS</Text>
@@ -244,8 +331,27 @@ export default function SettingsScreen() {
           </View>
         )}
         {Platform.OS === "web" && (
-          <Text style={styles.muted}>Calendar read-only access is available on iOS.</Text>
+          <Text style={styles.muted}>Calendar access is available on iOS.</Text>
         )}
+      </Section>
+
+      <Section title="Chat">
+        <View style={styles.row}>
+          <View style={{ flex: 1, paddingRight: 12 }}>
+            <Text style={styles.rowLabel}>Chat history</Text>
+            <Text style={styles.rowSub}>
+              Last 7 days kept automatically · {messages.length} messages ({todayMessages.length} today)
+            </Text>
+          </View>
+        </View>
+        <Pressable onPress={handleClearChat} style={styles.row} testID="clear-chat-btn">
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <Eraser size={14} color={Colors.urgent} strokeWidth={2} />
+            <Text style={[styles.rowLabel, { color: Colors.urgent }]}>
+              Clear chat history
+            </Text>
+          </View>
+        </Pressable>
       </Section>
 
       <Section title="About">

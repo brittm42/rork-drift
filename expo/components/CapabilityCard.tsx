@@ -5,6 +5,7 @@ import React, { useCallback, useMemo, useState } from "react";
 import { Animated, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Colors } from "@/constants/colors";
 import { useProfile } from "@/providers/ProfileProvider";
+import { useSettings } from "@/providers/SettingsProvider";
 
 type Suggestion = {
   id: string;
@@ -17,6 +18,7 @@ type Suggestion = {
 export function CapabilityCard() {
   const router = useRouter();
   const { profile, capability } = useProfile();
+  const { settings } = useSettings();
   const [expanded, setExpanded] = useState<boolean>(false);
 
   const suggestions = useMemo<Suggestion[]>(() => {
@@ -75,12 +77,21 @@ export function CapabilityCard() {
         unlocked: false,
       });
     }
+    if (settings.calendar_enabled && !settings.calendar_write_enabled) {
+      list.push({
+        id: "cal-write",
+        type: "calendar-write",
+        title: "Let me put blocks on your calendar",
+        sub: "So when you ask for gym time, it actually shows up there.",
+        unlocked: false,
+      });
+    }
     return list;
-  }, [profile]);
+  }, [profile, settings.calendar_enabled, settings.calendar_write_enabled]);
 
   const tierLabel = useMemo(() => {
     if (capability.tier === "full") return "Full context";
-    if (capability.tier === "enhanced") return "Getting richer";
+    if (capability.tier === "enhanced") return "Do more together";
     return "Just the basics";
   }, [capability.tier]);
 
@@ -92,6 +103,10 @@ export function CapabilityCard() {
   const handleAdd = useCallback(
     (type: string) => {
       if (Platform.OS !== "web") Haptics.selectionAsync();
+      if (type === "calendar-write") {
+        router.push("/(tabs)/settings");
+        return;
+      }
       router.push({ pathname: "/profile-add", params: { type } });
     },
     [router]
@@ -121,9 +136,7 @@ export function CapabilityCard() {
         <Sparkles size={13} color={Colors.sageDeep} strokeWidth={2} />
         <View style={{ flex: 1 }}>
           <Text style={styles.pillLabel}>{tierLabel.toUpperCase()}</Text>
-          <Text style={styles.pillText}>
-            {suggestions[0].title}
-          </Text>
+          <Text style={styles.pillText}>Tell me more about you</Text>
         </View>
         <View style={styles.countPill}>
           <Text style={styles.countText}>{suggestions.length}</Text>

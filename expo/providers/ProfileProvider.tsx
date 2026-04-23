@@ -6,6 +6,7 @@ import {
   EMPTY_PROFILE,
   type Anchor,
   type HouseholdMember,
+  type Memory,
   type NamedLocation,
   type RecurringObligation,
   type Rule,
@@ -24,7 +25,7 @@ async function loadProfile(): Promise<UserProfile> {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
     if (!raw) return EMPTY_PROFILE;
     const parsed = JSON.parse(raw) as Partial<UserProfile>;
-    return { ...EMPTY_PROFILE, ...parsed };
+    return { ...EMPTY_PROFILE, ...parsed, memories: parsed.memories ?? [] };
   } catch (e) {
     console.log("[profile] load error:", e);
     return EMPTY_PROFILE;
@@ -76,11 +77,10 @@ export const [ProfileProvider, useProfile] = createContextHook(() => {
   );
 
   const addHousehold = useCallback(
-    (m: Omit<HouseholdMember, "id">) => {
-      save((prev) => ({
-        ...prev,
-        household: [...prev.household, { ...m, id: uid("hh") }],
-      }));
+    (m: Omit<HouseholdMember, "id">): string => {
+      const id = uid("hh");
+      save((prev) => ({ ...prev, household: [...prev.household, { ...m, id }] }));
+      return id;
     },
     [save]
   );
@@ -106,8 +106,10 @@ export const [ProfileProvider, useProfile] = createContextHook(() => {
   );
 
   const addLocation = useCallback(
-    (l: Omit<NamedLocation, "id">) => {
-      save((prev) => ({ ...prev, locations: [...prev.locations, { ...l, id: uid("loc") }] }));
+    (l: Omit<NamedLocation, "id">): string => {
+      const id = uid("loc");
+      save((prev) => ({ ...prev, locations: [...prev.locations, { ...l, id }] }));
+      return id;
     },
     [save]
   );
@@ -128,8 +130,10 @@ export const [ProfileProvider, useProfile] = createContextHook(() => {
   );
 
   const addAnchor = useCallback(
-    (a: Omit<Anchor, "id">) => {
-      save((prev) => ({ ...prev, anchors: [...prev.anchors, { ...a, id: uid("anc") }] }));
+    (a: Omit<Anchor, "id">): string => {
+      const id = uid("anc");
+      save((prev) => ({ ...prev, anchors: [...prev.anchors, { ...a, id }] }));
+      return id;
     },
     [save]
   );
@@ -150,10 +154,12 @@ export const [ProfileProvider, useProfile] = createContextHook(() => {
   );
 
   const addRule = useCallback(
-    (text: string) => {
+    (text: string): string | null => {
       const trimmed = text.trim();
-      if (!trimmed) return;
-      save((prev) => ({ ...prev, rules: [...prev.rules, { id: uid("rl"), text: trimmed }] }));
+      if (!trimmed) return null;
+      const id = uid("rl");
+      save((prev) => ({ ...prev, rules: [...prev.rules, { id, text: trimmed }] }));
+      return id;
     },
     [save]
   );
@@ -174,14 +180,13 @@ export const [ProfileProvider, useProfile] = createContextHook(() => {
   );
 
   const addObligation = useCallback(
-    (o: Omit<RecurringObligation, "id">) => {
+    (o: Omit<RecurringObligation, "id">): string => {
+      const id = uid("obl");
       save((prev) => ({
         ...prev,
-        recurring_obligations: [
-          ...prev.recurring_obligations,
-          { ...o, id: uid("obl") },
-        ],
+        recurring_obligations: [...prev.recurring_obligations, { ...o, id }],
       }));
+      return id;
     },
     [save]
   );
@@ -240,6 +245,36 @@ export const [ProfileProvider, useProfile] = createContextHook(() => {
     [save]
   );
 
+  const addMemory = useCallback(
+    (m: Omit<Memory, "id" | "created_at">): string => {
+      const id = uid("mem");
+      save((prev) => ({
+        ...prev,
+        memories: [
+          { ...m, id, created_at: new Date().toISOString() },
+          ...prev.memories,
+        ],
+      }));
+      return id;
+    },
+    [save]
+  );
+  const removeMemory = useCallback(
+    (id: string) => {
+      save((prev) => ({ ...prev, memories: prev.memories.filter((m) => m.id !== id) }));
+    },
+    [save]
+  );
+  const updateMemory = useCallback(
+    (id: string, patch: Partial<Memory>) => {
+      save((prev) => ({
+        ...prev,
+        memories: prev.memories.map((m) => (m.id === id ? { ...m, ...patch } : m)),
+      }));
+    },
+    [save]
+  );
+
   const resetProfile = useCallback(() => {
     save(() => ({ ...EMPTY_PROFILE }));
   }, [save]);
@@ -285,6 +320,9 @@ export const [ProfileProvider, useProfile] = createContextHook(() => {
       removeDuration,
       addNote,
       removeNote,
+      addMemory,
+      removeMemory,
+      updateMemory,
       resetProfile,
     }),
     [
@@ -312,6 +350,9 @@ export const [ProfileProvider, useProfile] = createContextHook(() => {
       removeDuration,
       addNote,
       removeNote,
+      addMemory,
+      removeMemory,
+      updateMemory,
       resetProfile,
     ]
   );

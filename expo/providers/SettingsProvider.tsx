@@ -10,10 +10,14 @@ const DEFAULTS: Settings = {
   onboarded: false,
   notification_time: "07:00",
   calendar_enabled: false,
+  calendar_write_enabled: false,
   selected_calendar_ids: [],
+  default_write_calendar_id: null,
   notification_mode: "anchored",
   adaptive_content: true,
   midday_nudges: true,
+  chat_last_cleared_at: null,
+  location_enabled: false,
 };
 
 async function loadSettings(): Promise<Settings> {

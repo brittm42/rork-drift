@@ -17,7 +17,8 @@ async function loadTasks(): Promise<Task[]> {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as Task[];
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((t) => ({ scheduled_for: null, ...t }));
   } catch (e) {
     console.log("[tasks] load error:", e);
     return [];
@@ -60,7 +61,7 @@ export const [TasksProvider, useTasks] = createContextHook(() => {
   });
 
   const addTask = useCallback(
-    async (raw: string): Promise<Task> => {
+    async (raw: string, opts?: { scheduled_for?: Task["scheduled_for"] }): Promise<Task> => {
       const trimmed = raw.trim();
       if (!trimmed) throw new Error("empty");
       const now = new Date().toISOString();
@@ -76,6 +77,7 @@ export const [TasksProvider, useTasks] = createContextHook(() => {
         snooze_until: null,
         recurrence_rule: null,
         due_date: null,
+        scheduled_for: opts?.scheduled_for ?? null,
       };
       setTasks((prev) => {
         const next = [optimistic, ...prev];
@@ -103,19 +105,16 @@ export const [TasksProvider, useTasks] = createContextHook(() => {
     [addMutation]
   );
 
-  const completeTask = useCallback(
-    (id: string) => {
-      const now = new Date().toISOString();
-      setTasks((prev) => {
-        const next = prev.map((t) =>
-          t.id === id ? { ...t, is_complete: true, completed_at: now } : t
-        );
-        persist(next);
-        return next;
-      });
-    },
-    []
-  );
+  const completeTask = useCallback((id: string) => {
+    const now = new Date().toISOString();
+    setTasks((prev) => {
+      const next = prev.map((t) =>
+        t.id === id ? { ...t, is_complete: true, completed_at: now } : t
+      );
+      persist(next);
+      return next;
+    });
+  }, []);
 
   const uncompleteTask = useCallback((id: string) => {
     setTasks((prev) => {

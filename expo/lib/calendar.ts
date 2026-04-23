@@ -36,6 +36,68 @@ export async function listCalendars(): Promise<Calendar.Calendar[]> {
   }
 }
 
+export async function findWritableCalendarId(
+  preferredId: string | null
+): Promise<string | null> {
+  if (Platform.OS === "web") return null;
+  try {
+    const cals = await listCalendars();
+    if (preferredId) {
+      const pref = cals.find((c) => c.id === preferredId && c.allowsModifications);
+      if (pref) return pref.id;
+    }
+    const primary = cals.find((c) => c.allowsModifications && c.isPrimary);
+    if (primary) return primary.id;
+    const anyWritable = cals.find((c) => c.allowsModifications);
+    return anyWritable?.id ?? null;
+  } catch (e) {
+    console.log("[calendar] find writable error:", e);
+    return null;
+  }
+}
+
+export async function createCalendarEvent(params: {
+  title: string;
+  start: Date;
+  end: Date;
+  notes?: string | null;
+  calendarId?: string | null;
+}): Promise<string | null> {
+  if (Platform.OS === "web") {
+    console.log("[calendar] create event not supported on web");
+    return null;
+  }
+  try {
+    const calendarId = await findWritableCalendarId(params.calendarId ?? null);
+    if (!calendarId) {
+      console.log("[calendar] no writable calendar");
+      return null;
+    }
+    const id = await Calendar.createEventAsync(calendarId, {
+      title: params.title,
+      startDate: params.start,
+      endDate: params.end,
+      notes: params.notes ?? undefined,
+    });
+    console.log("[calendar] created event:", id, params.title);
+    return id;
+  } catch (e) {
+    console.log("[calendar] create event error:", e);
+    return null;
+  }
+}
+
+export async function deleteCalendarEvent(eventId: string): Promise<boolean> {
+  if (Platform.OS === "web") return false;
+  try {
+    await Calendar.deleteEventAsync(eventId);
+    return true;
+  } catch (e) {
+    console.log("[calendar] delete event error:", e);
+    return false;
+  }
+}
+
 export async function getTodayEvents(calendarIds: string[]): Promise<CalendarEventSnapshot[]> {
   if (Platform.OS === "web") return [];
   if (calendarIds.length === 0) return [];

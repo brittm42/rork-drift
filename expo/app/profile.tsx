@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import {
   Anchor as AnchorIcon,
+  Brain,
   ChevronRight,
   MapPin,
   NotebookPen,
@@ -56,6 +57,7 @@ export default function ProfileScreen() {
     removeObligation,
     removeDuration,
     removeNote,
+    removeMemory,
   } = useProfile();
 
   const confirmRemove = useCallback((label: string, onConfirm: () => void) => {
@@ -99,10 +101,7 @@ export default function ProfileScreen() {
           Everything I use to plan your day. Changes take effect on your next plan.
         </Text>
 
-        <Section
-          title="You"
-          icon={<Users size={14} color={Colors.sageDeep} strokeWidth={2} />}
-        >
+        <Section title="You" icon={<Users size={14} color={Colors.sageDeep} strokeWidth={2} />}>
           <KVRow
             label="Name"
             value={profile.name ?? "Not set"}
@@ -110,11 +109,11 @@ export default function ProfileScreen() {
             muted={!profile.name}
           />
           <KVRow
-            label="Work"
+            label="Work / days"
             value={
               profile.work.mode === "unspecified"
                 ? "Not set"
-                : `${profile.work.mode[0].toUpperCase()}${profile.work.mode.slice(1)}${
+                : `${prettyMode(profile.work.mode)}${
                     profile.work.typical_hours ? ` · ${profile.work.typical_hours}` : ""
                   }`
             }
@@ -127,6 +126,28 @@ export default function ProfileScreen() {
             onPress={() => goAdd("energy")}
             muted={!profile.energy_pattern}
           />
+        </Section>
+
+        <Section
+          title="What I know about you"
+          icon={<Brain size={14} color={Colors.sageDeep} strokeWidth={2} />}
+          onAdd={() => goAdd("memory")}
+          definition="Things I've learned from our chats. Edit or delete anything."
+        >
+          {profile.memories.length === 0 ? (
+            <EmptyRow text="Nothing saved yet. As we talk, I'll remember the important things." />
+          ) : (
+            profile.memories.map((m) => (
+              <ItemRow
+                key={m.id}
+                title={m.text}
+                sub={`${m.category}${m.source === "chat" ? " · from chat" : ""}`}
+                onRemove={() =>
+                  confirmRemove("Forget this?", () => removeMemory(m.id))
+                }
+              />
+            ))
+          )}
         </Section>
 
         <Section
@@ -154,9 +175,10 @@ export default function ProfileScreen() {
           title="Locations"
           icon={<MapPin size={14} color={Colors.sageDeep} strokeWidth={2} />}
           onAdd={() => goAdd("location")}
+          definition="Places you go often — unlocks travel buffers in your plan."
         >
           {profile.locations.length === 0 ? (
-            <EmptyRow text="Home, work, school, gym. Unlocks travel buffers later." />
+            <EmptyRow text="Home, work, school, gym." />
           ) : (
             profile.locations.map((l) => (
               <ItemRow
@@ -175,9 +197,10 @@ export default function ProfileScreen() {
           title="Hard anchors"
           icon={<AnchorIcon size={14} color={Colors.sageDeep} strokeWidth={2} />}
           onAdd={() => goAdd("anchor")}
+          definition="Fixed-day, fixed-time commitments. I plan around them — never over them."
         >
           {profile.anchors.length === 0 ? (
-            <EmptyRow text="School pickup, therapy, standing meetings — fixed things." />
+            <EmptyRow text="School pickup, therapy, standing meetings." />
           ) : (
             profile.anchors.map((a) => (
               <ItemRow
@@ -198,6 +221,7 @@ export default function ProfileScreen() {
           title="Rules"
           icon={<Scale size={14} color={Colors.sageDeep} strokeWidth={2} />}
           onAdd={() => goAdd("rule")}
+          definition="Personal constraints I should honor every plan."
         >
           {profile.rules.length === 0 ? (
             <EmptyRow text={`"25 min buffer home to school." "No meetings after 4."`} />
@@ -213,12 +237,13 @@ export default function ProfileScreen() {
         </Section>
 
         <Section
-          title="Recurring life admin"
+          title="Recurring items"
           icon={<Repeat size={14} color={Colors.sageDeep} strokeWidth={2} />}
           onAdd={() => goAdd("obligation")}
+          definition="Things that repeat on a cadence, without a fixed time — grooming, vet, refills."
         >
           {profile.recurring_obligations.length === 0 ? (
-            <EmptyRow text="Grooming, vet, med refills. I'll surface these over time." />
+            <EmptyRow text="Grooming, vet, med refills — I'll surface these over time." />
           ) : (
             profile.recurring_obligations.map((o) => (
               <ItemRow
@@ -280,15 +305,23 @@ export default function ProfileScreen() {
   );
 }
 
+function prettyMode(mode: string): string {
+  if (mode === "stay_at_home") return "Stay-at-home";
+  if (mode === "unspecified") return "Not set";
+  return mode[0].toUpperCase() + mode.slice(1);
+}
+
 function Section({
   title,
   icon,
   onAdd,
+  definition,
   children,
 }: {
   title: string;
   icon: React.ReactNode;
   onAdd?: () => void;
+  definition?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -305,6 +338,7 @@ function Section({
           </Pressable>
         )}
       </View>
+      {definition && <Text style={styles.definition}>{definition}</Text>}
       <View style={styles.sectionBody}>{children}</View>
     </View>
   );
@@ -373,7 +407,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 8,
+    marginBottom: 6,
     paddingHorizontal: 4,
   },
   sectionHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
@@ -383,6 +417,14 @@ const styles = StyleSheet.create({
     color: Colors.inkSoft,
     fontWeight: "700",
     textTransform: "uppercase",
+  },
+  definition: {
+    fontSize: 12,
+    color: Colors.inkMuted,
+    paddingHorizontal: 4,
+    marginBottom: 8,
+    lineHeight: 16,
+    fontStyle: "italic",
   },
   addBtn: {
     flexDirection: "row",

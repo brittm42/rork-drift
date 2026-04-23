@@ -1,7 +1,15 @@
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as Haptics from "expo-haptics";
-import { ArrowRight, BellRing, CalendarDays, Check, Send, Sparkles } from "lucide-react-native";
+import {
+  ArrowRight,
+  BellRing,
+  CalendarDays,
+  CalendarPlus,
+  Check,
+  Send,
+  Sparkles,
+} from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -21,7 +29,11 @@ import { Colors } from "@/constants/colors";
 import { useSettings } from "@/providers/SettingsProvider";
 import { useTasks } from "@/providers/TasksProvider";
 import { useProfile } from "@/providers/ProfileProvider";
-import { listCalendars, requestCalendarPermission } from "@/lib/calendar";
+import {
+  findWritableCalendarId,
+  listCalendars,
+  requestCalendarPermission,
+} from "@/lib/calendar";
 import {
   formatTime,
   parseTime,
@@ -34,7 +46,7 @@ import {
   type OnboardingSummary,
   type OnboardingTopic,
 } from "@/lib/ai";
-import type { UserProfile } from "@/types";
+import type { UserProfile, WorkSituation } from "@/types";
 
 type Phase =
   | "welcome"
@@ -45,6 +57,7 @@ type Phase =
   | "time"
   | "calendar"
   | "calendar-pick"
+  | "calendar-write"
   | "first-task"
   | "done";
 
@@ -57,17 +70,18 @@ const TOPIC_ORDER: OnboardingTopic[] = ["name", "household", "work", "anchors", 
 const TOPIC_PROMPTS: Record<OnboardingTopic, string> = {
   name: "Hi, I'm Drift. Before we start — what should I call you?",
   household: "Who's in your day-to-day life? A partner, kids, pets — whoever you plan around.",
-  work: "What's work like right now? Remote, hybrid, office? Rough hours are fine.",
+  work:
+    "What fills most of your days right now? Could be a job, school, caregiving, running a home — whatever shape it takes.",
   anchors:
     "Any hard anchors — things you have to do most days at set times? School pickup, therapy, a standing meeting.",
   rules_energy:
-    "Last thing: any personal rules I should know? Buffer times, energy patterns, non-negotiables.",
+    "Last thing: any personal rules or energy patterns I should know? Example: \"25 min buffer to school pickup\" or \"sharp mornings, afternoon dip.\"",
   open: "Anything else I should know?",
 };
 
 const TOPIC_CHIPS: Partial<Record<OnboardingTopic, string[]>> = {
   household: ["Just me", "Skip"],
-  work: ["Remote", "Hybrid", "Office", "Flexible"],
+  work: ["Remote", "Hybrid", "Office", "Student", "Caregiver", "Stay-at-home", "Between jobs", "Flexible"],
   anchors: ["None", "Skip"],
   rules_energy: ["Skip"],
 };
@@ -87,6 +101,7 @@ export default function OnboardingScreen() {
 
   const [phase, setPhase] = useState<Phase>("welcome");
   const [topicIdx, setTopicIdx] = useState<number>(0);
+  const [followUpUsed, setFollowUpUsed] = useState<boolean>(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState<string>("");
   const [thinking, setThinking] = useState<boolean>(false);
@@ -110,26 +125,21 @@ export default function OnboardingScreen() {
   const currentTopic: OnboardingTopic = TOPIC_ORDER[topicIdx] ?? "open";
   const currentChips = TOPIC_CHIPS[currentTopic];
 
-  // Seed first bot message when entering chat
   useEffect(() => {
     if (phase === "chat" && messages.length === 0) {
       setMessages([{ id: uid(), from: "bot", text: TOPIC_PROMPTS.name }]);
     }
   }, [phase, messages.length]);
 
-  // Scroll to bottom on new messages
   useEffect(() => {
     const t = setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 60);
     return () => clearTimeout(t);
   }, [messages, thinking]);
 
-  const goto = useCallback(
-    (p: Phase) => {
-      if (Platform.OS !== "web") Haptics.selectionAsync();
-      setPhase(p);
-    },
-    []
-  );
+  const goto = useCallback((p: Phase) => {
+    if (Platform.OS !== "web") Haptics.selectionAsync();
+    setPhase(p);
+  }, []);
 
   const applyExtract = useCallback(
     (extract: Awaited<ReturnType<typeof extractOnboardingFacts>>) => {
@@ -152,7 +162,7 @@ export default function OnboardingScreen() {
       if (extract.work) {
         merge({
           work: {
-            mode: extract.work.mode,
+            mode: extract.work.mode as WorkSituation["mode"],
             typical_hours: extract.work.typical_hours,
             notes: profile.work.notes,
           },
@@ -167,24 +177,31 @@ export default function OnboardingScreen() {
     [profile, merge, addHousehold, addAnchor, addRule]
   );
 
+  const advanceToSummary = useCallback(
+    (nextProfile: UserProfile) => {
+      setThinking(true);
+      summarizeOnboarding(nextProfile)
+        .then((s) => {
+          setSummary(s);
+          setRevealed(0);
+          setPhase("summary");
+        })
+        .catch((e) => {
+          console.log("[onboarding] summary error:", e);
+          setPhase("perm-intro");
+        })
+        .finally(() => setThinking(false));
+    },
+    []
+  );
+
   const advanceTopic = useCallback(
     (nextProfile: UserProfile) => {
       const nextIdx = topicIdx + 1;
       setTopicIdx(nextIdx);
+      setFollowUpUsed(false);
       if (nextIdx >= TOPIC_ORDER.length) {
-        // Move to summary
-        setThinking(true);
-        summarizeOnboarding(nextProfile)
-          .then((s) => {
-            setSummary(s);
-            setRevealed(0);
-            setPhase("summary");
-          })
-          .catch((e) => {
-            console.log("[onboarding] summary error:", e);
-            setPhase("perm-intro");
-          })
-          .finally(() => setThinking(false));
+        advanceToSummary(nextProfile);
       } else {
         const nextTopic = TOPIC_ORDER[nextIdx];
         setMessages((prev) => [
@@ -193,7 +210,7 @@ export default function OnboardingScreen() {
         ]);
       }
     },
-    [topicIdx]
+    [topicIdx, advanceToSummary]
   );
 
   const handleSendMessage = useCallback(
@@ -207,6 +224,9 @@ export default function OnboardingScreen() {
 
       const skip = /^(skip|none|no|nope|n\/a)\.?$/i.test(text);
       let nextProfile = profile;
+      let followUp: string | null = null;
+      let extractedAnything = false;
+
       if (!skip) {
         try {
           const extract = await extractOnboardingFacts({
@@ -214,8 +234,15 @@ export default function OnboardingScreen() {
             userMessage: text,
             currentProfile: profile,
           });
+          extractedAnything =
+            !!extract.name ||
+            extract.household.length > 0 ||
+            extract.anchors.length > 0 ||
+            !!extract.work ||
+            extract.rules.length > 0 ||
+            !!extract.energy_pattern ||
+            extract.notes.length > 0;
           applyExtract(extract);
-          // Approximate next profile for summary use
           nextProfile = {
             ...profile,
             name: extract.name ?? profile.name,
@@ -237,7 +264,7 @@ export default function OnboardingScreen() {
             ],
             work: extract.work
               ? {
-                  mode: extract.work.mode,
+                  mode: extract.work.mode as WorkSituation["mode"],
                   typical_hours: extract.work.typical_hours,
                   notes: profile.work.notes,
                 }
@@ -245,18 +272,36 @@ export default function OnboardingScreen() {
             energy_pattern: extract.energy_pattern ?? profile.energy_pattern,
             notes: [...profile.notes, ...extract.notes],
           };
+          followUp = extract.follow_up_question;
         } catch (e) {
           console.log("[onboarding] extract error:", e);
         }
       }
 
       setThinking(false);
+
+      // Responsive follow-up: ask once per topic if reply was real but got us nothing,
+      // or if the model explicitly surfaced a follow-up question.
+      const shouldFollowUp =
+        !skip &&
+        !followUpUsed &&
+        ((followUp && followUp.trim().length > 0) || !extractedAnything);
+
+      if (shouldFollowUp && !skip) {
+        setFollowUpUsed(true);
+        const q =
+          followUp && followUp.trim().length > 0
+            ? followUp
+            : "Got it — could you say a bit more? Even a quick detail helps.";
+        setMessages((prev) => [...prev, { id: uid(), from: "bot", text: q }]);
+        return;
+      }
+
       advanceTopic(nextProfile);
     },
-    [thinking, currentTopic, profile, applyExtract, advanceTopic]
+    [thinking, currentTopic, profile, followUpUsed, applyExtract, advanceTopic]
   );
 
-  // Summary bullet reveal
   useEffect(() => {
     if (phase !== "summary" || !summary) return;
     if (revealed >= summary.bullets.length) return;
@@ -299,6 +344,22 @@ export default function OnboardingScreen() {
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
   }, []);
+
+  const handleCalWriteYes = useCallback(async () => {
+    setBusy(true);
+    const writableId = await findWritableCalendarId(null);
+    update({
+      calendar_write_enabled: true,
+      default_write_calendar_id: writableId,
+    });
+    setBusy(false);
+    goto("first-task");
+  }, [update, goto]);
+
+  const handleCalWriteSkip = useCallback(() => {
+    update({ calendar_write_enabled: false });
+    goto("first-task");
+  }, [update, goto]);
 
   const handleFinish = useCallback(async () => {
     if (!firstTask.trim() || busy) return;
@@ -363,6 +424,7 @@ export default function OnboardingScreen() {
                 setTopicIdx(0);
                 setSummary(null);
                 setRevealed(0);
+                setFollowUpUsed(false);
                 setPhase("chat");
               }}
             />
@@ -397,7 +459,7 @@ export default function OnboardingScreen() {
             <PermissionStep
               icon={<CalendarDays size={26} color={Colors.sageDeep} strokeWidth={1.5} />}
               title="Plan around your actual day."
-              body="I read your calendar so your plan fits around meetings, not over them. Read-only, always."
+              body="I read your calendar so your plan fits around meetings, not over them."
               primary="Allow calendar access"
               secondary="Maybe later"
               busy={busy}
@@ -411,7 +473,20 @@ export default function OnboardingScreen() {
               cals={cals}
               selectedIds={selectedCalIds}
               onToggle={toggleCal}
-              onNext={() => goto("first-task")}
+              onNext={() => goto("calendar-write")}
+            />
+          )}
+
+          {phase === "calendar-write" && (
+            <PermissionStep
+              icon={<CalendarPlus size={26} color={Colors.sageDeep} strokeWidth={1.5} />}
+              title="Let me put things on your calendar?"
+              body="When you ask me to block time for the gym or an appointment, I'll put it right on Apple Calendar. Off by default — you can turn it on whenever."
+              primary="Yes, you can write"
+              secondary="Not yet"
+              busy={busy}
+              onPrimary={handleCalWriteYes}
+              onSecondary={handleCalWriteSkip}
             />
           )}
 
@@ -680,11 +755,9 @@ function RevealBullet({ text, visible }: { text: string; visible: boolean }) {
 function PermIntroStep({ name, onNext }: { name: string | null; onNext: () => void }) {
   return (
     <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-      <Text style={styles.h1}>
-        {name ? `Thanks, ${name}.` : "Thanks."}
-      </Text>
+      <Text style={styles.h1}>{name ? `Thanks, ${name}.` : "Thanks."}</Text>
       <Text style={styles.p}>
-        Two quick permissions so I can actually do this well. You can change either one later.
+        A few quick permissions so I can actually do this well. You can change any of them later.
       </Text>
       <View style={{ height: 18 }} />
       <PrimaryBtn label="Continue" onPress={onNext} />

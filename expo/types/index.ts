@@ -10,6 +10,7 @@ export type Task = {
   snooze_until: string | null;
   recurrence_rule: string | null;
   due_date: string | null;
+  scheduled_for: string | null;
 };
 
 export type PlanItem = {
@@ -40,10 +41,14 @@ export type Settings = {
   onboarded: boolean;
   notification_time: string;
   calendar_enabled: boolean;
+  calendar_write_enabled: boolean;
   selected_calendar_ids: string[];
+  default_write_calendar_id: string | null;
   notification_mode: "anchored" | "fixed";
   adaptive_content: boolean;
   midday_nudges: boolean;
+  chat_last_cleared_at: string | null;
+  location_enabled: boolean;
 };
 
 export type Weekday = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
@@ -59,6 +64,8 @@ export type NamedLocation = {
   id: string;
   label: string;
   address: string | null;
+  latitude: number | null;
+  longitude: number | null;
   notes: string | null;
 };
 
@@ -92,9 +99,36 @@ export type TaskDuration = {
 };
 
 export type WorkSituation = {
-  mode: "remote" | "hybrid" | "office" | "flexible" | "unspecified";
+  mode:
+    | "remote"
+    | "hybrid"
+    | "office"
+    | "flexible"
+    | "student"
+    | "caregiver"
+    | "stay_at_home"
+    | "unemployed"
+    | "retired"
+    | "other"
+    | "unspecified";
   typical_hours: string | null;
   notes: string | null;
+};
+
+export type MemoryCategory =
+  | "preference"
+  | "fact"
+  | "routine"
+  | "health"
+  | "relationship"
+  | "other";
+
+export type Memory = {
+  id: string;
+  text: string;
+  category: MemoryCategory;
+  created_at: string;
+  source: "chat" | "manual" | "onboarding";
 };
 
 export type UserProfile = {
@@ -108,6 +142,7 @@ export type UserProfile = {
   work: WorkSituation;
   energy_pattern: string | null;
   notes: string[];
+  memories: Memory[];
   updated_at: string;
 };
 
@@ -122,5 +157,81 @@ export const EMPTY_PROFILE: UserProfile = {
   work: { mode: "unspecified", typical_hours: null, notes: null },
   energy_pattern: null,
   notes: [],
+  memories: [],
   updated_at: new Date(0).toISOString(),
+};
+
+export type ChatActionKind =
+  | "answer"
+  | "add_task"
+  | "save_memory"
+  | "add_anchor"
+  | "add_recurring"
+  | "add_rule"
+  | "add_household"
+  | "add_location"
+  | "do_reshape"
+  | "propose_reshape"
+  | "create_calendar_event";
+
+export type ChatAction =
+  | { kind: "answer" }
+  | {
+      kind: "add_task";
+      raw: string;
+      scheduled_for: "today" | "tomorrow" | "inbox";
+      confirmation: string;
+    }
+  | {
+      kind: "save_memory";
+      text: string;
+      category: MemoryCategory;
+      confirmation: string;
+    }
+  | {
+      kind: "add_anchor";
+      title: string;
+      time: string | null;
+      days: Weekday[];
+      buffer_minutes: number | null;
+      confirmation: string;
+    }
+  | {
+      kind: "add_recurring";
+      title: string;
+      cadence: string;
+      confirmation: string;
+    }
+  | { kind: "add_rule"; text: string; confirmation: string }
+  | {
+      kind: "add_household";
+      name: string;
+      relation: "partner" | "child" | "pet" | "other";
+      detail: string | null;
+      confirmation: string;
+    }
+  | {
+      kind: "add_location";
+      label: string;
+      address: string | null;
+      confirmation: string;
+    }
+  | { kind: "do_reshape"; summary: string }
+  | { kind: "propose_reshape"; summary: string; details: string }
+  | {
+      kind: "create_calendar_event";
+      title: string;
+      start_time: string;
+      end_time: string;
+      confirmation: string;
+    };
+
+export type ChatMessage = {
+  id: string;
+  from: "user" | "bot";
+  text: string;
+  created_at: string;
+  actions?: ChatAction[];
+  applied_action_ids?: string[];
+  pending_confirm?: boolean;
 };

@@ -1,8 +1,10 @@
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
-import { X } from "lucide-react-native";
+import { Locate, MapPin, Search, X } from "lucide-react-native";
 import React, { useCallback, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -15,7 +17,18 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "@/constants/colors";
 import { useProfile } from "@/providers/ProfileProvider";
-import type { HouseholdMember, Weekday } from "@/types";
+import { useSettings } from "@/providers/SettingsProvider";
+import {
+  geocodeAddress,
+  getCurrentLocation,
+  requestLocationPermission,
+} from "@/lib/location";
+import type {
+  HouseholdMember,
+  MemoryCategory,
+  Weekday,
+  WorkSituation,
+} from "@/types";
 
 type AddType =
   | "name"
@@ -27,10 +40,22 @@ type AddType =
   | "rule"
   | "obligation"
   | "duration"
-  | "note";
+  | "note"
+  | "memory";
 
 const KIND_OPTIONS: HouseholdMember["kind"][] = ["partner", "child", "pet", "other"];
-const WORK_MODES = ["remote", "hybrid", "office", "flexible"] as const;
+const WORK_MODES: WorkSituation["mode"][] = [
+  "remote",
+  "hybrid",
+  "office",
+  "flexible",
+  "student",
+  "caregiver",
+  "stay_at_home",
+  "unemployed",
+  "retired",
+  "other",
+];
 const WEEKDAYS: { key: Weekday; label: string }[] = [
   { key: "mon", label: "M" },
   { key: "tue", label: "T" },
@@ -41,10 +66,18 @@ const WEEKDAYS: { key: Weekday; label: string }[] = [
   { key: "sun", label: "S" },
 ];
 const CADENCES = ["Weekly", "Biweekly", "Every 4 weeks", "Monthly", "Quarterly", "Yearly"];
+const MEMORY_CATEGORIES: MemoryCategory[] = [
+  "preference",
+  "fact",
+  "routine",
+  "health",
+  "relationship",
+  "other",
+];
 
 const TITLES: Record<AddType, string> = {
   name: "Your name",
-  work: "Work situation",
+  work: "Your days",
   energy: "Energy pattern",
   household: "Add someone",
   location: "Add a place",
@@ -53,20 +86,27 @@ const TITLES: Record<AddType, string> = {
   obligation: "Recurring item",
   duration: "Task duration",
   note: "Add a note",
+  memory: "Remember this",
 };
 
 const SUBTITLES: Record<AddType, string> = {
   name: "What should I call you?",
-  work: "How do you usually work?",
+  work: "What fills most of your days? Work, school, caregiving — whatever fits.",
   energy: "When do you feel sharpest?",
   household: "Partner, kid, pet, or other.",
   location: "Places you go often.",
-  anchor: "Something you do at a fixed time.",
+  anchor: "Fixed day and time commitment. I plan around it.",
   rule: "One line. I'll honor it when planning.",
-  obligation: "Grooming, vet, refills — things that recur.",
+  obligation: "Repeats on a cadence without a set time — grooming, vet, refills.",
   duration: "How long a kind of task usually takes you.",
   note: "Anything else I should keep in mind.",
+  memory: "A durable fact about you I should remember.",
 };
+
+function prettyMode(mode: WorkSituation["mode"]): string {
+  if (mode === "stay_at_home") return "Stay-at-home";
+  return mode[0].toUpperCase() + mode.slice(1);
+}
 
 export default function ProfileAddScreen() {
   const router = useRouter();
@@ -83,14 +123,15 @@ export default function ProfileAddScreen() {
     addObligation,
     addDuration,
     addNote,
+    addMemory,
   } = useProfile();
+  const { update } = useSettings();
 
-  // Shared state (only some are used per type)
   const [text, setText] = useState<string>("");
   const [sub, setSub] = useState<string>("");
   const [kind, setKind] = useState<HouseholdMember["kind"]>("child");
-  const [workMode, setWorkMode] = useState<(typeof WORK_MODES)[number] | null>(
-    profile.work.mode === "unspecified" ? null : (profile.work.mode as (typeof WORK_MODES)[number])
+  const [workMode, setWorkMode] = useState<WorkSituation["mode"] | null>(
+    profile.work.mode === "unspecified" ? null : profile.work.mode
   );
   const [workHours, setWorkHours] = useState<string>(profile.work.typical_hours ?? "");
   const [time, setTime] = useState<string>("");
@@ -98,11 +139,61 @@ export default function ProfileAddScreen() {
   const [days, setDays] = useState<Weekday[]>([]);
   const [cadence, setCadence] = useState<string>(CADENCES[2]);
   const [minutes, setMinutes] = useState<string>("");
+  const [memCategory, setMemCategory] = useState<MemoryCategory>("fact");
+  const [addressLat, setAddressLat] = useState<number | null>(null);
+  const [addressLng, setAddressLng] = useState<number | null>(null);
+  const [geocoding, setGeocoding] = useState<boolean>(false);
+  const [geocodeState, setGeocodeState] = useState<"idle" | "hit" | "miss">("idle");
 
   const toggleDay = useCallback((d: Weekday) => {
     if (Platform.OS !== "web") Haptics.selectionAsync();
     setDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
   }, []);
+
+  const handleGeocode = useCallback(async () => {
+    const q = sub.trim();
+    if (!q) return;
+    setGeocoding(true);
+    setGeocodeState("idle");
+    const hit = await geocodeAddress(q);
+    setGeocoding(false);
+    if (hit) {
+      setAddressLat(hit.latitude);
+      setAddressLng(hit.longitude);
+      setGeocodeState("hit");
+    } else {
+      setAddressLat(null);
+      setAddressLng(null);
+      setGeocodeState("miss");
+    }
+  }, [sub]);
+
+  const handleUseCurrent = useCallback(async () => {
+    const granted = await requestLocationPermission();
+    if (!granted) {
+      update({ location_enabled: false });
+      if (Platform.OS !== "web") {
+        Alert.alert(
+          "Location needed",
+          "Enable location in Settings so I can fill in where you are."
+        );
+      }
+      return;
+    }
+    update({ location_enabled: true });
+    setGeocoding(true);
+    setGeocodeState("idle");
+    const hit = await getCurrentLocation();
+    setGeocoding(false);
+    if (hit) {
+      setSub(hit.address);
+      setAddressLat(hit.latitude);
+      setAddressLng(hit.longitude);
+      setGeocodeState("hit");
+    } else {
+      setGeocodeState("miss");
+    }
+  }, [update]);
 
   const canSave = useMemo(() => {
     switch (type) {
@@ -110,6 +201,7 @@ export default function ProfileAddScreen() {
       case "energy":
       case "rule":
       case "note":
+      case "memory":
         return text.trim().length > 0;
       case "work":
         return workMode !== null;
@@ -138,7 +230,7 @@ export default function ProfileAddScreen() {
       case "work":
         merge({
           work: {
-            mode: (workMode ?? "unspecified") as never,
+            mode: workMode ?? "unspecified",
             typical_hours: workHours.trim() || null,
             notes: profile.work.notes,
           },
@@ -151,7 +243,13 @@ export default function ProfileAddScreen() {
         addHousehold({ name: text.trim(), kind, detail: sub.trim() || null });
         break;
       case "location":
-        addLocation({ label: text.trim(), address: sub.trim() || null, notes: null });
+        addLocation({
+          label: text.trim(),
+          address: sub.trim() || null,
+          latitude: addressLat,
+          longitude: addressLng,
+          notes: null,
+        });
         break;
       case "anchor":
         addAnchor({
@@ -180,6 +278,9 @@ export default function ProfileAddScreen() {
       case "note":
         addNote(text.trim());
         break;
+      case "memory":
+        addMemory({ text: text.trim(), category: memCategory, source: "manual" });
+        break;
     }
     router.back();
   }, [
@@ -195,6 +296,9 @@ export default function ProfileAddScreen() {
     days,
     cadence,
     minutes,
+    memCategory,
+    addressLat,
+    addressLng,
     profile.work.notes,
     merge,
     addHousehold,
@@ -204,6 +308,7 @@ export default function ProfileAddScreen() {
     addObligation,
     addDuration,
     addNote,
+    addMemory,
     router,
   ]);
 
@@ -231,7 +336,11 @@ export default function ProfileAddScreen() {
         >
           <Text style={styles.sub}>{SUBTITLES[type]}</Text>
 
-          {(type === "name" || type === "energy" || type === "rule" || type === "note") && (
+          {(type === "name" ||
+            type === "energy" ||
+            type === "rule" ||
+            type === "note" ||
+            type === "memory") && (
             <TextInput
               value={text}
               onChangeText={setText}
@@ -242,13 +351,40 @@ export default function ProfileAddScreen() {
                     ? "Sharp mornings, afternoon dip"
                     : type === "rule"
                       ? "25 min buffer home to school pickup"
-                      : "Anything I should know"
+                      : type === "memory"
+                        ? "I have a golden retriever named Biscuit"
+                        : "Anything I should know"
               }
               placeholderTextColor={Colors.inkFaint}
               style={styles.bigInput}
-              multiline={type === "rule" || type === "note"}
+              multiline
               autoFocus
             />
+          )}
+
+          {type === "memory" && (
+            <>
+              <Label text="Category" />
+              <View style={styles.chipRow}>
+                {MEMORY_CATEGORIES.map((c) => {
+                  const on = memCategory === c;
+                  return (
+                    <Pressable
+                      key={c}
+                      onPress={() => {
+                        if (Platform.OS !== "web") Haptics.selectionAsync();
+                        setMemCategory(c);
+                      }}
+                      style={[styles.chip, on && styles.chipOn]}
+                    >
+                      <Text style={[styles.chipText, on && styles.chipTextOn]}>
+                        {c[0].toUpperCase() + c.slice(1)}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </>
           )}
 
           {type === "work" && (
@@ -267,7 +403,7 @@ export default function ProfileAddScreen() {
                       style={[styles.chip, on && styles.chipOn]}
                     >
                       <Text style={[styles.chipText, on && styles.chipTextOn]}>
-                        {m[0].toUpperCase() + m.slice(1)}
+                        {prettyMode(m)}
                       </Text>
                     </Pressable>
                   );
@@ -337,14 +473,52 @@ export default function ProfileAddScreen() {
                 style={styles.input}
                 autoFocus
               />
-              <Label text="Address or note (optional)" />
-              <TextInput
-                value={sub}
-                onChangeText={setSub}
-                placeholder="123 Main St, or 'across town'"
-                placeholderTextColor={Colors.inkFaint}
-                style={styles.input}
-              />
+              <Label text="Address" />
+              <View style={styles.addressRow}>
+                <TextInput
+                  value={sub}
+                  onChangeText={(v) => {
+                    setSub(v);
+                    setGeocodeState("idle");
+                    setAddressLat(null);
+                    setAddressLng(null);
+                  }}
+                  onBlur={handleGeocode}
+                  placeholder="123 Main St, Austin TX"
+                  placeholderTextColor={Colors.inkFaint}
+                  style={[styles.input, { flex: 1 }]}
+                  returnKeyType="search"
+                  onSubmitEditing={handleGeocode}
+                />
+                <Pressable
+                  onPress={handleGeocode}
+                  style={styles.geoBtn}
+                  hitSlop={8}
+                  disabled={!sub.trim() || geocoding}
+                  testID="geocode-btn"
+                >
+                  {geocoding ? (
+                    <ActivityIndicator size="small" color={Colors.sageDeep} />
+                  ) : (
+                    <Search size={16} color={Colors.sageDeep} strokeWidth={2} />
+                  )}
+                </Pressable>
+              </View>
+              <Pressable onPress={handleUseCurrent} style={styles.currentBtn} testID="use-current-btn">
+                <Locate size={14} color={Colors.sageDeep} strokeWidth={2} />
+                <Text style={styles.currentBtnText}>Use current location</Text>
+              </Pressable>
+              {geocodeState === "hit" && (
+                <View style={styles.geoHint}>
+                  <MapPin size={12} color={Colors.sageDeep} strokeWidth={2} />
+                  <Text style={styles.geoHintText}>Pinned — I can use this for travel times.</Text>
+                </View>
+              )}
+              {geocodeState === "miss" && (
+                <Text style={styles.geoMiss}>
+                  Couldn&apos;t find that address — you can still save it as text.
+                </Text>
+              )}
             </>
           )}
 
@@ -544,5 +718,46 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.paper,
     alignItems: "center",
     justifyContent: "center",
+  },
+  addressRow: { flexDirection: "row", gap: 8, alignItems: "center" },
+  geoBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.paper,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  currentBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 10,
+    marginTop: 8,
+  },
+  currentBtnText: {
+    fontSize: 13,
+    color: Colors.sageDeep,
+    fontWeight: "600",
+    letterSpacing: 0.2,
+  },
+  geoHint: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 6,
+  },
+  geoHintText: {
+    fontSize: 12,
+    color: Colors.sageDark,
+    fontWeight: "500",
+  },
+  geoMiss: {
+    marginTop: 6,
+    fontSize: 12,
+    color: Colors.amber,
+    fontStyle: "italic",
   },
 });
