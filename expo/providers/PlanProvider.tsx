@@ -7,6 +7,7 @@ import { getRemainingEvents, getTodayEvents } from "@/lib/calendar";
 import type { DayPlan } from "@/types";
 import { useSettings } from "@/providers/SettingsProvider";
 import { useTasks } from "@/providers/TasksProvider";
+import { useProfile } from "@/providers/ProfileProvider";
 
 const STORAGE_KEY = "drift:plan:v1";
 
@@ -37,6 +38,7 @@ async function persist(plan: DayPlan | null): Promise<void> {
 export const [PlanProvider, usePlan] = createContextHook(() => {
   const { settings } = useSettings();
   const { tasks, completedToday } = useTasks();
+  const { profile } = useProfile();
   const [plan, setPlan] = useState<DayPlan | null>(null);
   const [hydrated, setHydrated] = useState<boolean>(false);
 
@@ -71,6 +73,7 @@ export const [PlanProvider, usePlan] = createContextHook(() => {
         tasks,
         events,
         now,
+        profile,
         reroute,
       });
 

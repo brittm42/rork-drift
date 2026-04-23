@@ -18,6 +18,7 @@ import { usePlan } from "@/providers/PlanProvider";
 import { useSettings } from "@/providers/SettingsProvider";
 import { useTasks } from "@/providers/TasksProvider";
 import type { PlanItem, Task } from "@/types";
+import { CapabilityCard } from "@/components/CapabilityCard";
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -105,6 +106,8 @@ export default function TodayScreen() {
       >
         <Text style={styles.eyebrow}>{formatToday().toUpperCase()}</Text>
         <Text style={styles.greeting}>{greeting()}.</Text>
+
+        <CapabilityCard />
 
         {plan ? (
           <>

@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { parseTaskInput } from "@/lib/ai";
 import type { Task } from "@/types";
+import { useProfile } from "@/providers/ProfileProvider";
 
 const STORAGE_KEY = "drift:tasks:v1";
 
@@ -32,6 +33,7 @@ async function persist(tasks: Task[]): Promise<void> {
 }
 
 export const [TasksProvider, useTasks] = createContextHook(() => {
+  const { profile } = useProfile();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [hydrated, setHydrated] = useState<boolean>(false);
 
@@ -54,7 +56,7 @@ export const [TasksProvider, useTasks] = createContextHook(() => {
   }, []);
 
   const addMutation = useMutation({
-    mutationFn: async (raw: string) => parseTaskInput(raw),
+    mutationFn: async (raw: string) => parseTaskInput(raw, profile),
   });
 
   const addTask = useCallback(

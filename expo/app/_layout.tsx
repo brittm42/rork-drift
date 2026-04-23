@@ -8,6 +8,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { SettingsProvider, useSettings } from "@/providers/SettingsProvider";
 import { TasksProvider } from "@/providers/TasksProvider";
 import { PlanProvider } from "@/providers/PlanProvider";
+import { ProfileProvider } from "@/providers/ProfileProvider";
 import { Colors } from "@/constants/colors";
 
 SplashScreen.preventAutoHideAsync();
@@ -55,6 +56,15 @@ function RootLayoutNav() {
           animation: "slide_from_bottom",
         }}
       />
+      <Stack.Screen name="profile" options={{ title: "What I know" }} />
+      <Stack.Screen
+        name="profile-add"
+        options={{
+          presentation: "modal",
+          headerShown: false,
+          animation: "slide_from_bottom",
+        }}
+      />
     </Stack>
   );
 }
@@ -68,16 +78,18 @@ export default function RootLayout() {
     <QueryClientProvider client={queryClient}>
       <SafeAreaProvider>
         <SettingsProvider>
-          <TasksProvider>
-            <PlanProvider>
-              <GestureHandlerRootView style={{ flex: 1, backgroundColor: Colors.background }}>
-                <StatusBar style="dark" />
-                <OnboardingGate>
-                  <RootLayoutNav />
-                </OnboardingGate>
-              </GestureHandlerRootView>
-            </PlanProvider>
-          </TasksProvider>
+          <ProfileProvider>
+            <TasksProvider>
+              <PlanProvider>
+                <GestureHandlerRootView style={{ flex: 1, backgroundColor: Colors.background }}>
+                  <StatusBar style="dark" />
+                  <OnboardingGate>
+                    <RootLayoutNav />
+                  </OnboardingGate>
+                </GestureHandlerRootView>
+              </PlanProvider>
+            </TasksProvider>
+          </ProfileProvider>
         </SettingsProvider>
       </SafeAreaProvider>
     </QueryClientProvider>

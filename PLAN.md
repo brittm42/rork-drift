@@ -1,70 +1,85 @@
-# Build Drift — a calm, calendar-aware daily planner
+# Build the memory layer + conversational onboarding foundation
 
-## Drift
-Your day, already figured out. Drift reads your calendar, holds your task list, and writes your plan for you each morning — then adapts when life shifts.
+## Why this first
 
-## Features (v1)
+Memory is the prerequisite for everything else you want — travel buffers, recurring reminders, the chat assistant, even better plan generation. Without it, each feature reinvents the same context. With it, every future feature gets smarter for free.
 
-**Plain-language task inbox**
-- Tap a floating button from any screen to add a task by typing — no forms, no dropdowns.
-- Drift quietly cleans up typos and notices urgency words like "today" or "ASAP."
-- Tasks live in your inbox until you check them off. Nothing is ever lost.
+This batch focuses **only** on building that foundation. Chat, calendar write, and triggered reminders come next — each will be dramatically easier once memory exists.
 
-**Calendar-aware morning plan**
-- Each morning Drift reads your calendar and your inbox, then writes a prioritized plan of 3–7 tasks.
-- Each task gets a one-line reason it's on today's list and a suggested time window ("before your 10am", "after lunch"), shown by default.
-- A single header line captures the shape of your day ("Packed morning, open afternoon — front-load the focus work").
+## What you'll get
 
-**Smart, adaptive notifications**
-- A morning notification arrives anchored to your day: normally 7:00 AM, but earlier if your first meeting is early.
-- Content adapts — a packed day reads differently than an open one.
-- Gentle pre-meeting nudges and next-task reminders through the day.
-- On empty days, a soft check-in suggests something productive if you've had a strong week, or something restful if the week was hard.
-- Tapping any notification opens straight to Today.
+### A conversational onboarding that actually feels like talking
 
-**Re-route my day**
-- A button on the Today view (and the action on mid-day notifications) asks Drift to rewrite the rest of your day from right now, around remaining meetings and what's already done.
-- Always forward-looking — never dwells on what didn't happen.
+- Replaces the current form-style onboarding with a 3-phase chat flow
+- **Phase 1 — Who are you** (~2 min): the assistant asks high-signal questions one at a time (name, household, hard daily anchors like school pickup, work situation) and reflects answers back for confirmation rather than asking you to re-type
+- **Phase 2 — Permissions** (~2 min): only after the assistant summarizes what it learned ("here's what I've got about your life — does this sound right?"), then asks for calendar, notifications, and optional location, each with a plain-language why
+- **Phase 3 — First task** (30 sec): one quick task so tomorrow's plan has something to work with
+- Feels like texting an assistant, not filling out a form
 
-**Additive progress**
-- Check off tasks as you go. Progress is framed as "3 done" — no streaks, no scores, no guilt.
-- Brief undo window after each tap. A calm celebration when the day is fully cleared.
+### A real memory layer the AI uses on every call
 
-**Calendar picker**
-- During onboarding Drift asks permission to read your calendar and explains why.
-- In settings you choose which calendars to include. Drift never writes to your calendar — ever.
+A structured profile that lives in your database and is passed into every plan generation and task parse:
 
-**Onboarding**
-- Welcome → choose notification time → grant calendar permission (with a clear why) → pick which calendars to include → add your first task → done.
+- **Household**: partner, kids (with ages/schedules), pets
+- **Locations:** work, school, gym, grandma's house, etc.
+- **Hard anchors**: recurring obligations with days/times (school pickup 3:30 M–F, therapy Thursdays, etc.)
+- **Personal rules**: buffer times ("25 min from gym to school pickup"), energy patterns ("sharp mornings, afternoon dip")
+- **Recurring life admin**: pet grooming cycles, annual vet, medication refills — stored but not yet surfaced as reminders (that's the next batch)
+- **Work situation**: remote/hybrid/office, typical hours
+- **Task durations:** Doesn't want to spend more than 20 minutes pulling weeds, dishes take 10 minutes.
+- **Freeform notes**: a catch-all the assistant can append to as you use it
 
-**Settings**
-- Change notification time, toggle calendars, manage account. Minimal by design.
+### A capability-tier home card (replaces any progress-percentage feeling)
 
-## Design
+Shown on Today as a dismissible "Unlock more" card:
 
-- **Aesthetic:** off-white canvas with sage and deep forest accents. Warm, editorial, not clinical. Typography leads — task text is the hero, UI chrome recedes.
-- **Calendar events** appear as lighter environmental context so your tasks stay foreground.
-- **Motion:** a gentle "thinking" moment while the plan generates — feels considered, not loading. Soft check-off animations with subtle haptics.
-- **Clear text labels** everywhere. Dynamic Type and VoiceOver supported from day one.
-- **App icon:** off-white background with a soft sage leaf or a single curving line evoking a drift of wind — minimal, organic, calm.
+- *"Add your key locations and I'll calculate travel time"*
+- *"I can manage your refill schedule if you'd like."*
 
-## Screens
+Each tier is a clear value trade, not a guilt metric. Tapping a card drops you into a quick 2-minute add flow for just that piece.
 
-- **Today** — the hero. Day header, the plan with time windows under each task, progress count, re-route button.
-- **Inbox** — every incomplete task, newest first, with the add button always within thumb reach.
-- **Add task** — a bottom sheet with a single text field. Opens from anywhere.
-- **Onboarding** — five short steps, no dead ends.
-- **Settings** — notification time, calendar selector, account.
+### A Profile screen you can edit anytime
 
-## Choices locked in
+- View everything the assistant knows about you, organized by section
+- Edit or remove any item (household member, anchor, rule, recurring obligation)
+- Add a freeform note ("I don't drink coffee after 2pm")
+- Clear feedback that changes take effect on the next plan generation
 
-- Name: **Drift**
-- Auth: email magic link (Google can come later)
-- AI: Rork's built-in gateway with Claude Sonnet for planning and Haiku for task parsing
-- Storage: on-device for v1 (data model mirrors the eventual cloud schema so sync can be added cleanly later)
-- Notifications: local, adaptive, multi-touchpoint
-- Re-routing: always user-triggered, surfaced prominently on Today and on mid-day notifications
+### Smarter plan generation, immediately
 
-## Explicitly out of scope for v1
+Even before chat and calendar write ship, the morning plan will get noticeably better because the AI now sees your full profile — so pickup anchors, buffer rules, and energy patterns all flow into planning automatically.
 
-Writing to your calendar, due-date pickers, recurring tasks, editing tasks after adding, weekly views, streaks or gamification, widgets, Dynamic Island, Siri.
+## Design direction
+
+- **Onboarding**: full-screen chat bubbles, the assistant on the left in a warm neutral tone, your replies on the right. Quick-tap chips for common answers (e.g. "Yes, that's right" / "Not quite") to keep typing minimal. Soft fade transitions between phases, no progress bar (it's a conversation, not a wizard).
+- **Summary reveal moment**: when the assistant plays back what it learned at the end of Phase 1, use a gentle reveal animation — each bullet appearing in sequence. This is the "wow, it actually gets me" moment that earns the permission asks.
+- **Capability card on Today**: horizontal, one small pill-card, unlock tip muted. Tap to expand. More information visible in expanded view. Tap again to provide more context to "unlock" more abilities. 
+- **Profile screen**: clean list sections with subtle dividers, iOS-settings-feel but warmer. Each section has an "Add" affordance at the bottom.
+- Tone across all copy: calm, confident, slightly warm. Never chipper. Never clinical.
+
+## Screens in this batch
+
+- **Onboarding (replaced)** — the three-phase conversational flow
+- **Today (updated)** — adds the capability-tier card; existing plan view unchanged
+- **Profile (new)** — view and edit everything the assistant remembers
+- **Settings (updated)** — links to Profile; notification time stays here
+- **Quick-add flows (new)** — small modal flows for adding a household member, an anchor, a rule, or a recurring obligation, triggered from the capability tiers card or Profile screen
+
+## What's explicitly NOT in this batch (saved for next rounds)
+
+- Conversational chat on Today ("clear 2 hours for the gym") — next batch, builds directly on this memory
+- Calendar write via expo-calendar — next batch
+- Travel-aware buffers using location — needs memory (locations) first, which this batch adds
+- Triggered/recurring reminders actually firing — this batch stores the data; next batch surfaces them
+- Different task types - projects, more detail in add task screen.
+- Google OAuth — deferred; iOS native calendar will sync to Google automatically when we get to calendar write
+
+## What I'd suggest doing in Claude Code in parallel (optional, no rush)
+
+- Review the Supabase RLS policies for the new profile tables after this ships
+- Set up a simple nightly job for recurring-obligation detection when we get to that batch
+- Everything else stays in Rork — this batch is pure product iteration and you'll want hot reload
+
+## Success feels like
+
+You finish onboarding and genuinely think "huh, it actually got me." Tomorrow's plan shows up and respects your 3:30 pickup without you ever having typed those exact words into a task. That's the foundation the rest of the magic stacks on top of.

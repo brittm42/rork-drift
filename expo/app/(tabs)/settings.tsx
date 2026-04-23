@@ -10,7 +10,8 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Check, ChevronDown } from "lucide-react-native";
+import { Check, ChevronDown, ChevronRight, User } from "lucide-react-native";
+import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { Colors } from "@/constants/colors";
 import { useSettings } from "@/providers/SettingsProvider";
@@ -35,6 +36,7 @@ const TIME_CHOICES = [
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { settings, update } = useSettings();
   const [timeOpen, setTimeOpen] = useState<boolean>(false);
   const [cals, setCals] = useState<CalendarT[]>([]);
@@ -132,6 +134,25 @@ export default function SettingsScreen() {
     >
       <Text style={styles.eyebrow}>SETTINGS</Text>
       <Text style={styles.pageTitle}>Drift</Text>
+
+      <Section title="What I know about you">
+        <Pressable
+          onPress={() => router.push("/profile")}
+          style={styles.profileRow}
+          testID="settings-profile-link"
+        >
+          <View style={styles.profileIcon}>
+            <User size={16} color={Colors.sageDeep} strokeWidth={1.75} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.rowLabel}>Your profile</Text>
+            <Text style={styles.rowSub}>
+              Household, anchors, rules, recurring items
+            </Text>
+          </View>
+          <ChevronRight size={16} color={Colors.inkFaint} strokeWidth={2} />
+        </Pressable>
+      </Section>
 
       <Section title="Morning plan">
         <Row
@@ -442,6 +463,21 @@ const styles = StyleSheet.create({
   },
   aboutCard: {
     padding: 16,
+  },
+  profileRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  profileIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.creamSoft,
+    alignItems: "center",
+    justifyContent: "center",
   },
   aboutTitle: {
     fontSize: 16,
