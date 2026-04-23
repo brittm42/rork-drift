@@ -7,10 +7,11 @@ import {
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Check, ChevronDown, ChevronRight, Eraser, User } from "lucide-react-native";
+import { Check, ChevronDown, ChevronRight, Eraser, Map as MapIcon, User } from "lucide-react-native";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { Colors } from "@/constants/colors";
@@ -22,8 +23,10 @@ import {
   listCalendars,
   requestCalendarPermission,
 } from "@/lib/calendar";
-import { formatTime, parseTime, scheduleMorningNotification } from "@/lib/notifications";
+import { parseTime, scheduleMorningNotification } from "@/lib/notifications";
+import { formatHHMM } from "@/lib/time";
 import type { Calendar as CalendarT } from "expo-calendar";
+import type { TimeFormat } from "@/types";
 
 const TIME_CHOICES = [
   "05:30",
@@ -42,6 +45,8 @@ export default function SettingsScreen() {
   const { settings, update } = useSettings();
   const { clear: clearChat, todayMessages, messages } = useChat();
   const [timeOpen, setTimeOpen] = useState<boolean>(false);
+  const [tokenDraft, setTokenDraft] = useState<string>(settings.mapkit_token ?? "");
+  const [tokenEditing, setTokenEditing] = useState<boolean>(false);
   const [cals, setCals] = useState<CalendarT[]>([]);
   const [permStatus, setPermStatus] = useState<"granted" | "denied" | "undetermined">("undetermined");
 
@@ -206,10 +211,39 @@ export default function SettingsScreen() {
         </Pressable>
       </Section>
 
+      <Section title="Display">
+        <View style={styles.row}>
+          <View style={{ flex: 1, paddingRight: 12 }}>
+            <Text style={styles.rowLabel}>Time format</Text>
+            <Text style={styles.rowSub}>Used everywhere in the app.</Text>
+          </View>
+          <View style={styles.segment}>
+            {(["12h", "24h"] as TimeFormat[]).map((f) => {
+              const on = settings.time_format === f;
+              return (
+                <Pressable
+                  key={f}
+                  onPress={() => {
+                    if (Platform.OS !== "web") Haptics.selectionAsync();
+                    update({ time_format: f });
+                  }}
+                  style={[styles.segmentBtn, on && styles.segmentBtnOn]}
+                  testID={`time-format-${f}`}
+                >
+                  <Text style={[styles.segmentText, on && styles.segmentTextOn]}>
+                    {f === "12h" ? "12-hour" : "24-hour"}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      </Section>
+
       <Section title="Morning plan">
         <Row
           label="Delivery time"
-          value={formatTime(settings.notification_time)}
+          value={formatHHMM(settings.notification_time, settings.time_format)}
           onPress={() => setTimeOpen((v) => !v)}
           chevron
         />
@@ -224,7 +258,7 @@ export default function SettingsScreen() {
                   style={[styles.timeChip, selected && styles.timeChipSelected]}
                 >
                   <Text style={[styles.timeChipText, selected && styles.timeChipTextSelected]}>
-                    {formatTime(t)}
+                    {formatHHMM(t, settings.time_format)}
                   </Text>
                 </Pressable>
               );
@@ -295,7 +329,7 @@ export default function SettingsScreen() {
         )}
         {settings.calendar_enabled && permStatus === "granted" && (
           <View style={{ marginTop: 8 }}>
-            <Text style={styles.subhead}>INCLUDE CALENDARS</Text>
+            <Text style={styles.subhead}>READ FROM</Text>
             {calendarsByAccount.length === 0 ? (
               <Text style={styles.muted}>No calendars found.</Text>
             ) : (
@@ -332,6 +366,85 @@ export default function SettingsScreen() {
         )}
         {Platform.OS === "web" && (
           <Text style={styles.muted}>Calendar access is available on iOS.</Text>
+        )}
+      </Section>
+
+      <Section title="Apple Maps">
+        <View style={styles.row}>
+          <View style={{ flex: 1, paddingRight: 12 }}>
+            <Text style={styles.rowLabel}>MapKit JS token</Text>
+            <Text style={styles.rowSub}>
+              {settings.mapkit_token
+                ? "Connected — location search and drive time are unlocked."
+                : "Paste a MapKit JS auth token (JWT) from developer.apple.com to enable place search."}
+            </Text>
+          </View>
+          <MapIcon
+            size={16}
+            color={settings.mapkit_token ? Colors.sageDeep : Colors.inkFaint}
+            strokeWidth={2}
+          />
+        </View>
+        {tokenEditing ? (
+          <View style={styles.tokenBox}>
+            <TextInput
+              value={tokenDraft}
+              onChangeText={setTokenDraft}
+              placeholder="eyJhbGciOi…"
+              placeholderTextColor={Colors.inkFaint}
+              style={styles.tokenInput}
+              autoCapitalize="none"
+              autoCorrect={false}
+              multiline
+              testID="mapkit-token-input"
+            />
+            <View style={styles.tokenBtnRow}>
+              <Pressable
+                onPress={() => {
+                  setTokenDraft(settings.mapkit_token ?? "");
+                  setTokenEditing(false);
+                }}
+                style={styles.tokenBtnGhost}
+              >
+                <Text style={styles.tokenBtnGhostText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  const trimmed = tokenDraft.trim();
+                  update({ mapkit_token: trimmed.length > 0 ? trimmed : null });
+                  setTokenEditing(false);
+                }}
+                style={styles.tokenBtnPrimary}
+              >
+                <Text style={styles.tokenBtnPrimaryText}>Save</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : (
+          <Pressable
+            onPress={() => {
+              setTokenDraft(settings.mapkit_token ?? "");
+              setTokenEditing(true);
+            }}
+            style={styles.row}
+            testID="mapkit-token-edit"
+          >
+            <Text style={[styles.rowLabel, { color: Colors.sageDeep }]}>
+              {settings.mapkit_token ? "Replace token" : "Paste token"}
+            </Text>
+            <ChevronRight size={14} color={Colors.inkFaint} strokeWidth={2} />
+          </Pressable>
+        )}
+        {settings.mapkit_token && !tokenEditing && (
+          <Pressable
+            onPress={() => {
+              update({ mapkit_token: null });
+              setTokenDraft("");
+            }}
+            style={styles.row}
+          >
+            <Text style={[styles.rowLabel, { color: Colors.urgent }]}>Disconnect</Text>
+          </Pressable>
         )}
       </Section>
 
@@ -569,6 +682,76 @@ const styles = StyleSheet.create({
   },
   aboutCard: {
     padding: 16,
+  },
+  segment: {
+    flexDirection: "row",
+    backgroundColor: Colors.creamSoft,
+    borderRadius: 14,
+    padding: 3,
+  },
+  segmentBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 11,
+  },
+  segmentBtnOn: {
+    backgroundColor: Colors.sageDeep,
+  },
+  segmentText: {
+    fontSize: 12,
+    color: Colors.inkSoft,
+    fontWeight: "600",
+  },
+  segmentTextOn: {
+    color: Colors.paper,
+  },
+  tokenBox: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.borderSoft,
+  },
+  tokenInput: {
+    minHeight: 80,
+    maxHeight: 180,
+    fontSize: 12,
+    color: Colors.ink,
+    backgroundColor: Colors.background,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 10,
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+    textAlignVertical: "top",
+  },
+  tokenBtnRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 8,
+    marginTop: 10,
+  },
+  tokenBtnGhost: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  tokenBtnGhostText: {
+    fontSize: 13,
+    color: Colors.inkSoft,
+    fontWeight: "600",
+  },
+  tokenBtnPrimary: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 14,
+    backgroundColor: Colors.sageDeep,
+  },
+  tokenBtnPrimaryText: {
+    fontSize: 13,
+    color: Colors.paper,
+    fontWeight: "700",
   },
   profileRow: {
     flexDirection: "row",

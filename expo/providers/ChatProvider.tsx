@@ -125,6 +125,7 @@ export const [ChatProvider, useChat] = createContextHook(() => {
               name: action.name,
               kind: action.relation,
               detail: action.detail,
+              birthday: null,
             });
             break;
           }

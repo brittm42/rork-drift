@@ -36,11 +36,12 @@ async function persist(plan: DayPlan | null): Promise<void> {
 }
 
 export const [PlanProvider, usePlan] = createContextHook(() => {
-  const { settings } = useSettings();
-  const { tasks, completedToday } = useTasks();
-  const { profile } = useProfile();
+  const { settings, update: updateSettings } = useSettings();
+  const { tasks, completedToday, hydrated: tasksHydrated } = useTasks();
+  const { profile, hydrated: profileHydrated } = useProfile();
   const [plan, setPlan] = useState<DayPlan | null>(null);
   const [hydrated, setHydrated] = useState<boolean>(false);
+  const [autoTried, setAutoTried] = useState<boolean>(false);
 
   const query = useQuery<DayPlan | null>({
     queryKey: ["plan"],
@@ -94,6 +95,44 @@ export const [PlanProvider, usePlan] = createContextHook(() => {
 
   const isToday = plan?.date === todayISO();
   const todayPlan = isToday ? plan : null;
+
+  // Safety-net auto-generation: if today's plan is missing when the app
+  // opens, generate quietly (no duplicate notification). This backs up the
+  // morning-of scheduled generation in case the device was off at 7:28.
+  useEffect(() => {
+    if (!hydrated || !tasksHydrated || !profileHydrated) return;
+    if (autoTried) return;
+    const today = todayISO();
+    if (plan?.date === today) {
+      setAutoTried(true);
+      return;
+    }
+    if (settings.last_auto_plan_date === today) {
+      setAutoTried(true);
+      return;
+    }
+    const incompleteCount = tasks.filter((t) => !t.is_complete).length;
+    if (incompleteCount === 0) {
+      setAutoTried(true);
+      return;
+    }
+    setAutoTried(true);
+    console.log("[plan] auto-generating today's plan (safety net)");
+    generateMutation
+      .mutateAsync({})
+      .then(() => updateSettings({ last_auto_plan_date: today }))
+      .catch((e) => console.log("[plan] auto-generate failed:", e));
+  }, [
+    hydrated,
+    tasksHydrated,
+    profileHydrated,
+    autoTried,
+    plan?.date,
+    settings.last_auto_plan_date,
+    tasks,
+    generateMutation,
+    updateSettings,
+  ]);
 
   const clearPlan = useCallback(() => {
     setPlan(null);

@@ -115,6 +115,7 @@ const planSchema = z.object({
         task_id: z.string(),
         rationale: z.string(),
         suggested_time_window: z.string(),
+        start_time: z.string().nullable(),
       })
     )
     .min(1)
@@ -161,6 +162,7 @@ Generate a prioritized plan for today:
 - Respect hard anchors from the profile (e.g. school pickup): leave buffer time and never schedule conflicting work
 - Honor personal rules and energy patterns when ordering the day
 - Suggest a natural time window for each task (e.g. "Before your 10am", "After lunch", "Mid-afternoon", "Early evening") — use anchor-relative phrasing when appropriate ("Before pickup", "After drop-off")
+- ALWAYS include a concrete start_time for each task in 24-hour HH:MM format (e.g. "09:30", "14:00") — this is required so the UI can place tasks chronologically alongside events and anchors. If a task is genuinely flexible, pick a reasonable slot that fits around calendar events and anchors. Never return null unless there is literally no time that could work today.
 - Write a one-line rationale for why each task is on today's plan — warm, specific, reference their life where natural, never generic
 - Write a one-line "shape of the day" header (e.g. "Packed morning, open afternoon — front-load the focus work")`;
 

@@ -1,8 +1,11 @@
 import * as Haptics from "expo-haptics";
-import { Anchor as AnchorIcon, Check, RefreshCw, Sparkles } from "lucide-react-native";
+import {
+  Anchor as AnchorIcon,
+  Calendar as CalendarIcon,
+  Check,
+} from "lucide-react-native";
 import React, { useCallback, useMemo } from "react";
 import {
-  ActivityIndicator,
   Platform,
   Pressable,
   RefreshControl,
@@ -17,9 +20,16 @@ import { usePlan } from "@/providers/PlanProvider";
 import { useProfile } from "@/providers/ProfileProvider";
 import { useSettings } from "@/providers/SettingsProvider";
 import { useTasks } from "@/providers/TasksProvider";
-import type { Anchor, CalendarEventSnapshot, PlanItem, Task, Weekday } from "@/types";
+import type {
+  Anchor,
+  CalendarEventSnapshot,
+  PlanItem,
+  Task,
+  Weekday,
+} from "@/types";
 import { CapabilityCard } from "@/components/CapabilityCard";
 import { ChatDock } from "@/components/ChatDock";
+import { formatDate, formatHHMM, minutesOfDay } from "@/lib/time";
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -41,84 +51,111 @@ function formatToday(): string {
 
 const WEEKDAY_KEYS: Weekday[] = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 
-type BlendedItem =
-  | {
-      kind: "event";
-      id: string;
-      title: string;
-      start: number;
-      all_day: boolean;
-      label: string;
-    }
-  | { kind: "anchor"; id: string; title: string; start: number; label: string };
-
 function todayWeekday(): Weekday {
   return WEEKDAY_KEYS[new Date().getDay()];
 }
 
-function blendEventsAndAnchors(
-  events: CalendarEventSnapshot[],
-  anchors: Anchor[]
-): BlendedItem[] {
+type TimelineItem =
+  | {
+      kind: "event";
+      id: string;
+      title: string;
+      sortMinutes: number;
+      allDay: boolean;
+      timeLabel: string;
+      event: CalendarEventSnapshot;
+    }
+  | {
+      kind: "anchor";
+      id: string;
+      title: string;
+      sortMinutes: number;
+      timeLabel: string;
+      anchor: Anchor;
+    }
+  | {
+      kind: "task";
+      id: string;
+      title: string;
+      sortMinutes: number;
+      timeLabel: string;
+      task: Task;
+      item: PlanItem;
+      index: number;
+    };
+
+function buildTimeline(params: {
+  events: CalendarEventSnapshot[];
+  anchors: Anchor[];
+  planTasks: { item: PlanItem; task: Task }[];
+  timeFormat: "12h" | "24h";
+}): TimelineItem[] {
+  const { events, anchors, planTasks, timeFormat } = params;
   const dayKey = todayWeekday();
-  const now = new Date();
-  const items: BlendedItem[] = [];
+  const items: TimelineItem[] = [];
 
   for (const e of events) {
-    const start = new Date(e.start_time).getTime();
-    items.push({
-      kind: "event",
-      id: `e_${e.id}`,
-      title: e.title,
-      start: e.all_day ? 0 : start,
-      all_day: e.all_day,
-      label: e.all_day
-        ? "All day"
-        : new Date(e.start_time).toLocaleTimeString(undefined, {
-            hour: "numeric",
-            minute: "2-digit",
-          }),
-    });
+    if (e.all_day) {
+      items.push({
+        kind: "event",
+        id: `e_${e.id}`,
+        title: e.title,
+        sortMinutes: -1,
+        allDay: true,
+        timeLabel: "All day",
+        event: e,
+      });
+    } else {
+      const d = new Date(e.start_time);
+      const mins = d.getHours() * 60 + d.getMinutes();
+      items.push({
+        kind: "event",
+        id: `e_${e.id}`,
+        title: e.title,
+        sortMinutes: mins,
+        allDay: false,
+        timeLabel: formatDate(d, timeFormat),
+        event: e,
+      });
+    }
   }
 
   for (const a of anchors) {
     if (!a.days.includes(dayKey)) continue;
-    let start = Number.MAX_SAFE_INTEGER;
-    let label = "Anchor";
-    if (a.time) {
-      const [hh, mm] = a.time.split(":").map((n) => parseInt(n, 10));
-      const d = new Date(now);
-      d.setHours(Number.isFinite(hh) ? hh : 9, Number.isFinite(mm) ? mm : 0, 0, 0);
-      start = d.getTime();
-      label = d.toLocaleTimeString(undefined, {
-        hour: "numeric",
-        minute: "2-digit",
-      });
-    }
+    const mins = a.time ? minutesOfDay(a.time) : 24 * 60 + 1;
     items.push({
       kind: "anchor",
       id: `a_${a.id}`,
       title: a.title,
-      start,
-      label,
+      sortMinutes: mins,
+      timeLabel: a.time ? formatHHMM(a.time, timeFormat) : "Anytime",
+      anchor: a,
     });
   }
 
-  // All-day first; timed items sorted chronologically
-  items.sort((a, b) => {
-    const aAll = a.kind === "event" && a.all_day;
-    const bAll = b.kind === "event" && b.all_day;
-    if (aAll !== bAll) return aAll ? -1 : 1;
-    return a.start - b.start;
+  planTasks.forEach(({ item, task }, idx) => {
+    const t = item.start_time;
+    const mins = t ? minutesOfDay(t) : 24 * 60 + 2 + idx;
+    items.push({
+      kind: "task",
+      id: `t_${task.id}`,
+      title: task.title,
+      sortMinutes: mins,
+      timeLabel: t ? formatHHMM(t, timeFormat) : item.suggested_time_window,
+      task,
+      item,
+      index: idx,
+    });
   });
 
+  items.sort((a, b) => a.sortMinutes - b.sortMinutes);
   return items;
 }
 
 export default function TodayScreen() {
   const insets = useSafeAreaInsets();
-  const { plan, generate, reroute, isGenerating, error } = usePlan();
-  const { incomplete, completedToday, byId, completeTask, uncompleteTask } = useTasks();
+  const { plan, generate, isGenerating } = usePlan();
+  const { completedToday, byId, completeTask, uncompleteTask } = useTasks();
   const { settings } = useSettings();
   const { profile } = useProfile();
 
@@ -132,12 +169,33 @@ export default function TodayScreen() {
       .filter((x): x is { item: PlanItem; task: Task } => x !== null);
   }, [plan, byId]);
 
-  const activePlanTasks = planTasks.filter((p) => !p.task.is_complete);
-  const donePlanTasks = planTasks.filter((p) => p.task.is_complete);
+  const activePlanTasks = useMemo(
+    () => planTasks.filter((p) => !p.task.is_complete),
+    [planTasks]
+  );
+  const donePlanTasks = useMemo(
+    () => planTasks.filter((p) => p.task.is_complete),
+    [planTasks]
+  );
 
-  const blended = useMemo(
-    () => blendEventsAndAnchors(plan?.calendar_context ?? [], profile.anchors),
-    [plan?.calendar_context, profile.anchors]
+  const timeline = useMemo(
+    () =>
+      buildTimeline({
+        events: plan?.calendar_context ?? [],
+        anchors: profile.anchors,
+        planTasks: activePlanTasks,
+        timeFormat: settings.time_format,
+      }),
+    [plan?.calendar_context, profile.anchors, activePlanTasks, settings.time_format]
+  );
+
+  const allDayItems = useMemo(
+    () => timeline.filter((i) => i.kind === "event" && i.allDay),
+    [timeline]
+  );
+  const timedItems = useMemo(
+    () => timeline.filter((i) => !(i.kind === "event" && i.allDay)),
+    [timeline]
   );
 
   const handleGenerate = useCallback(async () => {
@@ -149,15 +207,6 @@ export default function TodayScreen() {
     }
   }, [generate]);
 
-  const handleReroute = useCallback(async () => {
-    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    try {
-      await reroute();
-    } catch (e) {
-      console.log("[today] reroute error:", e);
-    }
-  }, [reroute]);
-
   const handleComplete = useCallback(
     (taskId: string, isComplete: boolean) => {
       if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -167,19 +216,19 @@ export default function TodayScreen() {
     [completeTask, uncompleteTask]
   );
 
-  const allDone = plan && activePlanTasks.length === 0 && planTasks.length > 0;
+  const hasPlanContext = !!plan || profile.anchors.length > 0;
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.background }}>
       <ScrollView
         contentContainerStyle={{
           paddingTop: insets.top + 16,
-          paddingBottom: 240,
+          paddingBottom: 260,
           paddingHorizontal: 24,
         }}
         refreshControl={
           <RefreshControl
-            refreshing={false}
+            refreshing={isGenerating}
             onRefresh={handleGenerate}
             tintColor={Colors.sageDeep}
           />
@@ -191,69 +240,38 @@ export default function TodayScreen() {
 
         <CapabilityCard />
 
-        {plan ? (
+        {!hasPlanContext ? (
+          <EmptyState isGenerating={isGenerating} />
+        ) : (
           <>
-            <View style={styles.headerLine}>
-              <Sparkles size={13} color={Colors.sageDeep} strokeWidth={2} />
-              <Text style={styles.headerLineText}>{plan.header_note}</Text>
-            </View>
-
-            {blended.length > 0 && (
-              <View style={styles.scheduleStrip}>
-                <Text style={styles.stripLabel}>On your plate today</Text>
-                {blended.slice(0, 6).map((b) => (
-                  <View key={b.id} style={styles.scheduleRow}>
-                    {b.kind === "anchor" ? (
-                      <AnchorIcon
-                        size={10}
-                        color={Colors.sageDeep}
-                        strokeWidth={2.25}
-                        style={{ width: 10 }}
-                      />
-                    ) : (
-                      <View style={styles.dot} />
-                    )}
-                    <Text style={styles.scheduleTime} numberOfLines={1}>
-                      {b.label}
-                    </Text>
-                    <Text style={styles.scheduleTitle} numberOfLines={1}>
-                      {b.title}
-                    </Text>
-                    {b.kind === "anchor" && (
-                      <Text style={styles.anchorTag}>anchor</Text>
-                    )}
-                  </View>
-                ))}
-              </View>
-            )}
-
             <View style={styles.progressRow}>
               <Text style={styles.progressCount}>
-                {completedToday.length} <Text style={styles.progressLabel}>done today</Text>
+                {completedToday.length}{" "}
+                <Text style={styles.progressLabel}>done today</Text>
               </Text>
-              {plan.re_routed_at && (
-                <Text style={styles.rerouteLabel}>Re-routed</Text>
-              )}
+              {plan?.re_routed_at && <Text style={styles.rerouteLabel}>Re-routed</Text>}
             </View>
 
-            {allDone ? (
-              <View style={styles.doneCard}>
-                <Text style={styles.doneEmoji}>·</Text>
-                <Text style={styles.doneTitle}>You&apos;re done for today</Text>
-                <Text style={styles.doneSub}>
-                  Everything Drift mapped out is handled. Rest, or add something new.
-                </Text>
-              </View>
+            <Text style={styles.sectionLabel}>ON YOUR PLATE TODAY</Text>
+
+            {timeline.length === 0 ? (
+              <Text style={styles.emptyTimeline}>
+                Nothing scheduled yet. Add something in the chat below.
+              </Text>
             ) : (
-              <View style={styles.planList}>
-                {activePlanTasks.map(({ item, task }, idx) => (
-                  <PlanRow
-                    key={task.id}
-                    index={idx}
-                    item={item}
-                    task={task}
-                    onToggle={() => handleComplete(task.id, task.is_complete)}
-                    testId={`plan-row-${idx}`}
+              <View style={styles.timelineList}>
+                {allDayItems.map((b) => (
+                  <TimelineRow
+                    key={b.id}
+                    item={b}
+                    onToggle={handleComplete}
+                  />
+                ))}
+                {timedItems.map((b) => (
+                  <TimelineRow
+                    key={b.id}
+                    item={b}
+                    onToggle={handleComplete}
                   />
                 ))}
               </View>
@@ -278,35 +296,7 @@ export default function TodayScreen() {
                 ))}
               </View>
             )}
-
-            <Pressable
-              onPress={handleReroute}
-              disabled={isGenerating}
-              style={({ pressed }) => [
-                styles.rerouteBtn,
-                pressed && { opacity: 0.7 },
-                isGenerating && { opacity: 0.5 },
-              ]}
-              testID="reroute-btn"
-            >
-              {isGenerating ? (
-                <ActivityIndicator color={Colors.sageDeep} />
-              ) : (
-                <>
-                  <RefreshCw size={15} color={Colors.sageDeep} strokeWidth={1.75} />
-                  <Text style={styles.rerouteBtnText}>Re-route my day</Text>
-                </>
-              )}
-            </Pressable>
           </>
-        ) : (
-          <EmptyState
-            onGenerate={handleGenerate}
-            isGenerating={isGenerating}
-            hasTasks={incomplete.length > 0}
-            calendarEnabled={settings.calendar_enabled}
-            error={error}
-          />
         )}
       </ScrollView>
 
@@ -315,90 +305,76 @@ export default function TodayScreen() {
   );
 }
 
-function PlanRow({
-  index,
+function TimelineRow({
   item,
-  task,
   onToggle,
-  testId,
 }: {
-  index: number;
-  item: PlanItem;
-  task: Task;
-  onToggle: () => void;
-  testId: string;
+  item: TimelineItem;
+  onToggle: (taskId: string, isComplete: boolean) => void;
 }) {
-  return (
-    <View style={styles.planRow}>
-      <Pressable onPress={onToggle} style={styles.checkHit} testID={testId}>
-        <View style={styles.checkBox}>
-          {task.urgency_flag && <View style={styles.urgencyDot} />}
+  if (item.kind === "task") {
+    const task = item.task;
+    return (
+      <View style={styles.row}>
+        <Pressable
+          onPress={() => onToggle(task.id, task.is_complete)}
+          style={styles.rowCheckHit}
+          testID={`timeline-task-${task.id}`}
+        >
+          <View style={styles.checkBox}>
+            {task.urgency_flag && <View style={styles.urgencyDot} />}
+          </View>
+        </Pressable>
+        <View style={styles.rowBody}>
+          <View style={styles.rowMeta}>
+            <Text style={styles.rowTime}>{item.timeLabel}</Text>
+            {task.urgency_flag && <Text style={styles.urgentTag}>urgent</Text>}
+          </View>
+          <Text style={styles.rowTitle}>{item.title}</Text>
+          {item.item.rationale && (
+            <Text style={styles.rowSub}>{item.item.rationale}</Text>
+          )}
         </View>
-      </Pressable>
-      <View style={styles.planRowBody}>
-        <View style={styles.planRowHead}>
-          <Text style={styles.timeWindow}>{item.suggested_time_window}</Text>
-          {task.urgency_flag && <Text style={styles.urgentLabel}>urgent</Text>}
-        </View>
-        <Text style={styles.taskTitle}>{task.title}</Text>
-        <Text style={styles.rationale}>{item.rationale}</Text>
       </View>
-      <Text style={styles.planIndex}>{String(index + 1).padStart(2, "0")}</Text>
+    );
+  }
+
+  const isAnchor = item.kind === "anchor";
+  const Icon = isAnchor ? AnchorIcon : CalendarIcon;
+  const tagText = isAnchor ? "anchor" : "event";
+
+  return (
+    <View style={styles.row}>
+      <View style={styles.rowIconHit}>
+        <View style={styles.iconDot}>
+          <Icon size={11} color={Colors.sageDeep} strokeWidth={2} />
+        </View>
+      </View>
+      <View style={styles.rowBody}>
+        <View style={styles.rowMeta}>
+          <Text style={styles.rowTime}>{item.timeLabel}</Text>
+          <Text style={styles.ghostTag}>{tagText}</Text>
+        </View>
+        <Text style={styles.rowTitleMuted}>{item.title}</Text>
+      </View>
     </View>
   );
 }
 
-function EmptyState({
-  onGenerate,
-  isGenerating,
-  hasTasks,
-  calendarEnabled,
-  error,
-}: {
-  onGenerate: () => void;
-  isGenerating: boolean;
-  hasTasks: boolean;
-  calendarEnabled: boolean;
-  error: Error | null;
-}) {
+function EmptyState({ isGenerating }: { isGenerating: boolean }) {
   return (
     <View style={styles.empty}>
       <View style={styles.emptyGlyph}>
         <View style={styles.emptyLine} />
       </View>
       <Text style={styles.emptyTitle}>
-        {hasTasks ? "Ready when you are." : "Nothing on deck."}
+        {isGenerating ? "Thinking through your day…" : "Nothing on deck."}
       </Text>
       <Text style={styles.emptyBody}>
-        {hasTasks
-          ? calendarEnabled
-            ? "Drift will read your calendar and write a plan that fits around it."
-            : "Drift will plan the day from what's in your inbox."
-          : "Tell Drift anything below. It'll handle the rest."}
+        {isGenerating
+          ? "Pulling your calendar and shaping the morning."
+          : "Tell me something in the chat below — I'll take it from there."}
       </Text>
-      {error && <Text style={styles.errorText}>Couldn&apos;t generate a plan. Tap to try again.</Text>}
-      <Pressable
-        onPress={onGenerate}
-        disabled={isGenerating || !hasTasks}
-        style={({ pressed }) => [
-          styles.primaryBtn,
-          pressed && { opacity: 0.8 },
-          (isGenerating || !hasTasks) && { opacity: 0.4 },
-        ]}
-        testID="generate-plan-btn"
-      >
-        {isGenerating ? (
-          <>
-            <ActivityIndicator color={Colors.paper} />
-            <Text style={styles.primaryBtnText}>Drift is thinking…</Text>
-          </>
-        ) : (
-          <>
-            <Sparkles size={16} color={Colors.paper} strokeWidth={2} />
-            <Text style={styles.primaryBtnText}>Plan my day</Text>
-          </>
-        )}
-      </Pressable>
     </View>
   );
 }
@@ -417,61 +393,6 @@ const styles = StyleSheet.create({
     color: Colors.ink,
     letterSpacing: -0.8,
     marginBottom: 22,
-  },
-  headerLine: {
-    flexDirection: "row",
-    gap: 8,
-    alignItems: "flex-start",
-    marginBottom: 20,
-    paddingRight: 8,
-  },
-  headerLineText: {
-    flex: 1,
-    fontSize: 15,
-    color: Colors.sageDark,
-    lineHeight: 22,
-    fontWeight: "500",
-  },
-  scheduleStrip: {
-    marginBottom: 22,
-  },
-  stripLabel: {
-    fontSize: 10,
-    letterSpacing: 1.6,
-    color: Colors.inkMuted,
-    fontWeight: "600",
-    marginBottom: 8,
-  },
-  scheduleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingVertical: 6,
-  },
-  dot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: Colors.sage,
-    marginLeft: 2,
-    marginRight: 3,
-  },
-  scheduleTime: {
-    fontSize: 12,
-    color: Colors.inkSoft,
-    fontVariant: ["tabular-nums"],
-    width: 74,
-  },
-  scheduleTitle: {
-    flex: 1,
-    fontSize: 13,
-    color: Colors.inkSoft,
-  },
-  anchorTag: {
-    fontSize: 9,
-    letterSpacing: 1.2,
-    color: Colors.sageDeep,
-    fontWeight: "700",
   },
   progressRow: {
     flexDirection: "row",
@@ -496,15 +417,34 @@ const styles = StyleSheet.create({
     color: Colors.amber,
     fontWeight: "700",
   },
-  planList: { gap: 4 },
-  planRow: {
+  sectionLabel: {
+    fontSize: 10,
+    letterSpacing: 1.8,
+    color: Colors.inkMuted,
+    fontWeight: "700",
+    marginBottom: 12,
+  },
+  emptyTimeline: {
+    fontSize: 13,
+    color: Colors.inkMuted,
+    fontStyle: "italic",
+    paddingVertical: 10,
+  },
+  timelineList: {},
+  row: {
     flexDirection: "row",
-    paddingVertical: 16,
+    paddingVertical: 14,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: Colors.border,
     gap: 14,
   },
-  checkHit: { paddingTop: 22, paddingRight: 4 },
+  rowCheckHit: { paddingTop: 20, paddingRight: 2 },
+  rowIconHit: {
+    paddingTop: 20,
+    paddingRight: 2,
+    alignItems: "center",
+    width: 22,
+  },
   checkBox: {
     width: 22,
     height: 22,
@@ -520,46 +460,61 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: Colors.urgent,
   },
-  planRowBody: { flex: 1 },
-  planRowHead: {
+  iconDot: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: Colors.creamSoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rowBody: { flex: 1 },
+  rowMeta: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginBottom: 4,
+    marginBottom: 3,
   },
-  timeWindow: {
+  rowTime: {
     fontSize: 11,
-    letterSpacing: 1.3,
+    letterSpacing: 1.2,
     color: Colors.sageDeep,
     fontWeight: "700",
+    fontVariant: ["tabular-nums"],
   },
-  urgentLabel: {
+  urgentTag: {
     fontSize: 10,
     letterSpacing: 1.2,
     color: Colors.urgent,
     fontWeight: "700",
   },
-  taskTitle: {
-    fontSize: 19,
+  ghostTag: {
+    fontSize: 9,
+    letterSpacing: 1.3,
+    color: Colors.inkMuted,
+    fontWeight: "700",
+    textTransform: "uppercase",
+  },
+  rowTitle: {
+    fontSize: 18,
     color: Colors.ink,
     fontWeight: "600",
-    letterSpacing: -0.3,
-    lineHeight: 25,
-    marginBottom: 4,
+    letterSpacing: -0.2,
+    lineHeight: 24,
+    marginBottom: 3,
   },
-  rationale: {
+  rowTitleMuted: {
+    fontSize: 16,
+    color: Colors.inkSoft,
+    fontWeight: "500",
+    letterSpacing: -0.1,
+    lineHeight: 22,
+  },
+  rowSub: {
     fontSize: 13,
     color: Colors.inkSoft,
-    lineHeight: 19,
+    lineHeight: 18,
     fontStyle: "italic",
-  },
-  planIndex: {
-    fontSize: 11,
-    color: Colors.inkFaint,
-    fontWeight: "600",
-    letterSpacing: 1,
-    paddingTop: 22,
-    fontVariant: ["tabular-nums"],
   },
   doneSection: {
     marginTop: 28,
@@ -594,51 +549,10 @@ const styles = StyleSheet.create({
     color: Colors.inkMuted,
     textDecorationLine: "line-through",
   },
-  doneCard: {
-    paddingVertical: 48,
-    alignItems: "center",
-    gap: 12,
-  },
-  doneEmoji: {
-    fontSize: 40,
-    color: Colors.sageDeep,
-    marginBottom: 4,
-  },
-  doneTitle: {
-    fontSize: 22,
-    fontWeight: "600",
-    color: Colors.ink,
-    letterSpacing: -0.4,
-  },
-  doneSub: {
-    fontSize: 14,
-    color: Colors.inkSoft,
-    textAlign: "center",
-    maxWidth: 260,
-    lineHeight: 20,
-  },
-  rerouteBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    marginTop: 28,
-    paddingVertical: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.paper,
-  },
-  rerouteBtnText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: Colors.sageDeep,
-    letterSpacing: 0.2,
-  },
   empty: {
     paddingTop: 40,
     alignItems: "center",
-    gap: 14,
+    gap: 12,
   },
   emptyGlyph: {
     width: 64,
@@ -667,26 +581,5 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 20,
     maxWidth: 280,
-    marginBottom: 8,
-  },
-  errorText: {
-    fontSize: 12,
-    color: Colors.urgent,
-  },
-  primaryBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: Colors.sageDeep,
-    paddingHorizontal: 22,
-    paddingVertical: 14,
-    borderRadius: 28,
-    marginTop: 10,
-  },
-  primaryBtnText: {
-    color: Colors.paper,
-    fontSize: 15,
-    fontWeight: "600",
-    letterSpacing: 0.2,
   },
 });

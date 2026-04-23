@@ -1,7 +1,7 @@
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
-import { ChevronRight, Lock, Sparkles } from "lucide-react-native";
-import React, { useCallback, useMemo, useState } from "react";
+import { ChevronRight, Plus, Sparkles } from "lucide-react-native";
+import React, { useCallback, useMemo } from "react";
 import { Animated, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Colors } from "@/constants/colors";
 import { useProfile } from "@/providers/ProfileProvider";
@@ -12,51 +12,49 @@ type Suggestion = {
   type: string;
   title: string;
   sub: string;
-  unlocked: boolean;
 };
+
+const MAX_VISIBLE = 3;
+const ROTATE_MS = 9_000;
 
 export function CapabilityCard() {
   const router = useRouter();
-  const { profile, capability } = useProfile();
+  const { profile } = useProfile();
   const { settings } = useSettings();
-  const [expanded, setExpanded] = useState<boolean>(false);
+  const [rotation, setRotation] = React.useState<number>(0);
 
   const suggestions = useMemo<Suggestion[]>(() => {
     const list: Suggestion[] = [];
-    if (profile.locations.length === 0) {
+    if (profile.locations.length < 3) {
       list.push({
         id: "locations",
         type: "location",
-        title: "Add your key locations",
-        sub: "So I can factor in travel time to your plan.",
-        unlocked: false,
+        title: "Add a place you go often",
+        sub: "Home, work, school, gym — unlocks travel time in your plan.",
       });
     }
-    if (profile.anchors.length === 0) {
+    if (profile.anchors.length < 2) {
       list.push({
         id: "anchors",
         type: "anchor",
         title: "Add a daily anchor",
-        sub: "School pickup, therapy — things I should plan around.",
-        unlocked: false,
+        sub: "School pickup, standing meeting — I'll plan around it.",
       });
     }
-    if (profile.recurring_obligations.length === 0) {
+    if (profile.recurring_obligations.length < 2) {
       list.push({
         id: "obligations",
         type: "obligation",
-        title: "Add a recurring item",
-        sub: "Grooming, vet, refills — I'll surface these over time.",
-        unlocked: false,
+        title: "Add something that repeats",
+        sub: "Grooming, vet, refills — I'll surface these on time.",
       });
     }
-    if (profile.rules.length === 0) {
+    if (profile.rules.length < 3) {
       list.push({
         id: "rules",
         type: "rule",
-        title: "Add a rule",
-        sub: `"25 min buffer home to school." I'll honor it.`,
-        unlocked: false,
+        title: "Share a tendency",
+        sub: `"No meetings after 4pm." "25 min buffer to school."`,
       });
     }
     if (profile.household.length === 0) {
@@ -64,8 +62,14 @@ export function CapabilityCard() {
         id: "household",
         type: "household",
         title: "Tell me who you plan around",
-        sub: "Partner, kids, pets. Makes the plan feel like yours.",
-        unlocked: false,
+        sub: "Partner, kids, pets — makes the plan feel like yours.",
+      });
+    } else if (profile.household.some((h) => !h.birthday)) {
+      list.push({
+        id: "household-bdays",
+        type: "household",
+        title: "Add household birthdays",
+        sub: "I'll nudge you a couple weeks ahead so nothing slips.",
       });
     }
     if (!profile.energy_pattern) {
@@ -74,7 +78,22 @@ export function CapabilityCard() {
         type: "energy",
         title: "Share your energy pattern",
         sub: "Sharp mornings? Afternoon dip? I'll order the day around it.",
-        unlocked: false,
+      });
+    }
+    if (profile.task_durations.length < 2) {
+      list.push({
+        id: "durations",
+        type: "duration",
+        title: "How long do your tasks take?",
+        sub: `"Dishes: 10 min." I'll size time blocks to match.`,
+      });
+    }
+    if (profile.work.mode === "unspecified") {
+      list.push({
+        id: "work",
+        type: "work",
+        title: "Tell me what fills your days",
+        sub: "Work, school, caregiving — shapes when I plan what.",
       });
     }
     if (settings.calendar_enabled && !settings.calendar_write_enabled) {
@@ -82,28 +101,41 @@ export function CapabilityCard() {
         id: "cal-write",
         type: "calendar-write",
         title: "Let me put blocks on your calendar",
-        sub: "So when you ask for gym time, it actually shows up there.",
-        unlocked: false,
+        sub: "When you ask for gym time, it actually shows up there.",
+      });
+    }
+    if (!settings.mapkit_token) {
+      list.push({
+        id: "mapkit",
+        type: "mapkit-setup",
+        title: "Connect Apple Maps",
+        sub: "So I can search real places and time your departures.",
       });
     }
     return list;
-  }, [profile, settings.calendar_enabled, settings.calendar_write_enabled]);
+  }, [profile, settings.calendar_enabled, settings.calendar_write_enabled, settings.mapkit_token]);
 
-  const tierLabel = useMemo(() => {
-    if (capability.tier === "full") return "Full context";
-    if (capability.tier === "enhanced") return "Do more together";
-    return "Just the basics";
-  }, [capability.tier]);
+  const visible = useMemo(() => {
+    if (suggestions.length === 0) return [];
+    if (suggestions.length <= MAX_VISIBLE) return suggestions;
+    const start = rotation % suggestions.length;
+    const out: Suggestion[] = [];
+    for (let i = 0; i < MAX_VISIBLE; i++) {
+      out.push(suggestions[(start + i) % suggestions.length]);
+    }
+    return out;
+  }, [suggestions, rotation]);
 
-  const handleToggle = useCallback(() => {
-    if (Platform.OS !== "web") Haptics.selectionAsync();
-    setExpanded((v) => !v);
-  }, []);
+  React.useEffect(() => {
+    if (suggestions.length <= MAX_VISIBLE) return;
+    const t = setInterval(() => setRotation((n) => n + MAX_VISIBLE), ROTATE_MS);
+    return () => clearInterval(t);
+  }, [suggestions.length]);
 
   const handleAdd = useCallback(
     (type: string) => {
       if (Platform.OS !== "web") Haptics.selectionAsync();
-      if (type === "calendar-write") {
+      if (type === "calendar-write" || type === "mapkit-setup") {
         router.push("/(tabs)/settings");
         return;
       }
@@ -116,11 +148,11 @@ export function CapabilityCard() {
     return (
       <Pressable
         onPress={() => router.push("/profile")}
-        style={({ pressed }) => [styles.pill, pressed && { opacity: 0.8 }]}
+        style={({ pressed }) => [styles.fullPill, pressed && { opacity: 0.8 }]}
         testID="capability-card"
       >
         <Sparkles size={13} color={Colors.sageDeep} strokeWidth={2} />
-        <Text style={styles.pillText}>Full context · tap to review</Text>
+        <Text style={styles.fullText}>Full context · tap to review</Text>
         <ChevronRight size={13} color={Colors.inkMuted} strokeWidth={2} />
       </Pressable>
     );
@@ -129,140 +161,80 @@ export function CapabilityCard() {
   return (
     <View style={styles.wrap}>
       <Pressable
-        onPress={handleToggle}
-        style={({ pressed }) => [styles.pill, pressed && { opacity: 0.85 }]}
+        onPress={() => router.push("/profile")}
+        style={({ pressed }) => [styles.header, pressed && { opacity: 0.85 }]}
         testID="capability-card"
       >
-        <Sparkles size={13} color={Colors.sageDeep} strokeWidth={2} />
+        <View style={styles.headerIcon}>
+          <Sparkles size={13} color={Colors.sageDeep} strokeWidth={2} />
+        </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.pillLabel}>{tierLabel.toUpperCase()}</Text>
-          <Text style={styles.pillText}>Tell me more about you</Text>
+          <Text style={styles.headerLabel}>DO MORE TOGETHER</Text>
+          <Text style={styles.headerText}>Tell me more about you</Text>
         </View>
-        <View style={styles.countPill}>
-          <Text style={styles.countText}>{suggestions.length}</Text>
-        </View>
+        <ChevronRight size={14} color={Colors.inkMuted} strokeWidth={2} />
       </Pressable>
 
-      {expanded && (
-        <ExpandedList
-          suggestions={suggestions}
-          onAdd={handleAdd}
-          onOpenProfile={() => router.push("/profile")}
-        />
-      )}
-    </View>
-  );
-}
-
-function ExpandedList({
-  suggestions,
-  onAdd,
-  onOpenProfile,
-}: {
-  suggestions: Suggestion[];
-  onAdd: (type: string) => void;
-  onOpenProfile: () => void;
-}) {
-  const anim = useMemo(() => new Animated.Value(0), []);
-  React.useEffect(() => {
-    Animated.timing(anim, { toValue: 1, duration: 280, useNativeDriver: true }).start();
-  }, [anim]);
-
-  return (
-    <Animated.View
-      style={{
-        opacity: anim,
-        transform: [
-          { translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [-4, 0] }) },
-        ],
-        marginTop: 8,
-      }}
-    >
-      <View style={styles.expandedCard}>
-        <Text style={styles.expandedIntro}>
-          Tap any one to tell me more. I&apos;ll use it in every plan.
-        </Text>
-        {suggestions.map((s) => (
+      <Animated.View style={styles.listCard}>
+        {visible.map((s) => (
           <Pressable
             key={s.id}
-            onPress={() => onAdd(s.type)}
+            onPress={() => handleAdd(s.type)}
             style={({ pressed }) => [styles.suggestRow, pressed && { opacity: 0.7 }]}
             testID={`capability-suggest-${s.id}`}
           >
             <View style={styles.suggestIcon}>
-              <Lock size={11} color={Colors.inkMuted} strokeWidth={2} />
+              <Plus size={12} color={Colors.sageDeep} strokeWidth={2.25} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.suggestTitle}>{s.title}</Text>
               <Text style={styles.suggestSub}>{s.sub}</Text>
             </View>
-            <ChevronRight size={14} color={Colors.inkFaint} strokeWidth={2} />
+            <ChevronRight size={13} color={Colors.inkFaint} strokeWidth={2} />
           </Pressable>
         ))}
-        <Pressable onPress={onOpenProfile} style={styles.viewAllBtn} hitSlop={6}>
-          <Text style={styles.viewAllText}>See everything I know</Text>
-          <ChevronRight size={12} color={Colors.sageDeep} strokeWidth={2.25} />
-        </Pressable>
-      </View>
-    </Animated.View>
+      </Animated.View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: { marginBottom: 18 },
-  pill: {
+  wrap: { marginBottom: 22 },
+  header: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingVertical: 12,
     backgroundColor: Colors.creamSoft,
-    borderRadius: 14,
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Colors.border,
   },
-  pillLabel: {
-    fontSize: 9,
-    letterSpacing: 1.4,
-    fontWeight: "700",
-    color: Colors.inkMuted,
-    marginBottom: 1,
-  },
-  pillText: {
-    fontSize: 13,
-    color: Colors.ink,
-    fontWeight: "500",
-    flex: 1,
-  },
-  countPill: {
-    minWidth: 22,
-    height: 22,
-    paddingHorizontal: 7,
-    borderRadius: 11,
-    backgroundColor: Colors.sageDeep,
+  headerIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: Colors.paper,
     alignItems: "center",
     justifyContent: "center",
   },
-  countText: {
-    fontSize: 11,
+  headerLabel: {
+    fontSize: 9,
+    letterSpacing: 1.5,
     fontWeight: "700",
-    color: Colors.paper,
-    letterSpacing: 0.2,
-  },
-  expandedCard: {
-    backgroundColor: Colors.paper,
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderSoft,
-    paddingVertical: 8,
-  },
-  expandedIntro: {
-    fontSize: 12,
     color: Colors.inkMuted,
-    paddingHorizontal: 14,
-    paddingTop: 10,
-    paddingBottom: 8,
-    fontStyle: "italic",
+    marginBottom: 2,
+  },
+  headerText: { fontSize: 14, color: Colors.ink, fontWeight: "600" },
+  listCard: {
+    backgroundColor: Colors.paper,
+    borderBottomLeftRadius: 14,
+    borderBottomRightRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderTopWidth: 0,
+    borderColor: Colors.border,
   },
   suggestRow: {
     flexDirection: "row",
@@ -281,27 +253,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  suggestTitle: {
-    fontSize: 14,
-    color: Colors.ink,
-    fontWeight: "600",
-    marginBottom: 2,
-  },
+  suggestTitle: { fontSize: 14, color: Colors.ink, fontWeight: "600", marginBottom: 2 },
   suggestSub: { fontSize: 12, color: Colors.inkMuted, lineHeight: 16 },
-  viewAllBtn: {
+  fullPill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: 10,
     paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.borderSoft,
+    paddingVertical: 10,
+    backgroundColor: Colors.creamSoft,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.border,
+    marginBottom: 22,
   },
-  viewAllText: {
-    fontSize: 12,
-    color: Colors.sageDeep,
-    fontWeight: "600",
-    letterSpacing: 0.2,
-  },
+  fullText: { fontSize: 13, color: Colors.ink, fontWeight: "500", flex: 1 },
 });

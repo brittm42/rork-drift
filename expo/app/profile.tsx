@@ -23,10 +23,13 @@ import {
   Timer,
   Trash2,
   Users,
+  Zap,
 } from "lucide-react-native";
 import { Colors } from "@/constants/colors";
 import { useProfile } from "@/providers/ProfileProvider";
 import type { Weekday } from "@/types";
+import { formatHHMM } from "@/lib/time";
+import { useSettings } from "@/providers/SettingsProvider";
 
 const DAY_LABEL: Record<Weekday, string> = {
   mon: "Mon",
@@ -45,9 +48,24 @@ function formatDays(days: Weekday[]): string {
   return days.map((d) => DAY_LABEL[d]).join("/");
 }
 
+function formatBirthday(iso: string | null): string | null {
+  if (!iso) return null;
+  const parts = iso.split("-");
+  if (parts.length < 2) return null;
+  const m = parseInt(parts[parts.length === 3 ? 1 : 0], 10);
+  const d = parseInt(parts[parts.length === 3 ? 2 : 1], 10);
+  if (!Number.isFinite(m) || !Number.isFinite(d)) return null;
+  const months = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  ];
+  return `${months[(m - 1) % 12]} ${d}`;
+}
+
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { settings } = useSettings();
   const {
     profile,
     removeHousehold,
@@ -79,9 +97,9 @@ export default function ProfileScreen() {
   }, []);
 
   const goAdd = useCallback(
-    (type: string) => {
+    (type: string, extra?: Record<string, string>) => {
       if (Platform.OS !== "web") Haptics.selectionAsync();
-      router.push({ pathname: "/profile-add", params: { type } });
+      router.push({ pathname: "/profile-add", params: { type, ...(extra ?? {}) } });
     },
     [router]
   );
@@ -92,7 +110,7 @@ export default function ProfileScreen() {
       <ScrollView
         style={{ flex: 1, backgroundColor: Colors.background }}
         contentContainerStyle={{
-          paddingTop: 12,
+          paddingTop: 16,
           paddingBottom: insets.bottom + 48,
           paddingHorizontal: 20,
         }}
@@ -101,7 +119,10 @@ export default function ProfileScreen() {
           Everything I use to plan your day. Changes take effect on your next plan.
         </Text>
 
-        <Section title="You" icon={<Users size={14} color={Colors.sageDeep} strokeWidth={2} />}>
+        <Section
+          title="You"
+          icon={<Users size={16} color={Colors.sageDeep} strokeWidth={2} />}
+        >
           <KVRow
             label="Name"
             value={profile.name ?? "Not set"}
@@ -121,16 +142,49 @@ export default function ProfileScreen() {
             muted={profile.work.mode === "unspecified"}
           />
           <KVRow
-            label="Energy pattern"
+            label="Energy patterns"
             value={profile.energy_pattern ?? "Not set"}
             onPress={() => goAdd("energy")}
             muted={!profile.energy_pattern}
+            wrap
           />
+          <View style={styles.subDivider} />
+          <View style={styles.subSectionHeader}>
+            <View style={styles.subHeaderLeft}>
+              <Zap size={12} color={Colors.sageDeep} strokeWidth={2} />
+              <Text style={styles.subSectionTitle}>Personal tendencies</Text>
+            </View>
+            <Pressable
+              onPress={() => goAdd("rule")}
+              style={styles.addMini}
+              hitSlop={8}
+              testID="add-tendency"
+            >
+              <Plus size={12} color={Colors.sageDeep} strokeWidth={2.25} />
+              <Text style={styles.addMiniText}>Add</Text>
+            </Pressable>
+          </View>
+          <Text style={styles.subDefinition}>
+            How you like to work. I&apos;ll honor these in every plan.
+          </Text>
+          {profile.rules.length === 0 ? (
+            <Text style={styles.emptyRowInline}>
+              &ldquo;No meetings after 4.&rdquo; &ldquo;25 min buffer to school.&rdquo;
+            </Text>
+          ) : (
+            profile.rules.map((r) => (
+              <ItemRow
+                key={r.id}
+                title={r.text}
+                onRemove={() => confirmRemove("Remove this tendency?", () => removeRule(r.id))}
+              />
+            ))
+          )}
         </Section>
 
         <Section
-          title="What I know about you"
-          icon={<Brain size={14} color={Colors.sageDeep} strokeWidth={2} />}
+          title="What I remember"
+          icon={<Brain size={16} color={Colors.sageDeep} strokeWidth={2} />}
           onAdd={() => goAdd("memory")}
           definition="Things I've learned from our chats. Edit or delete anything."
         >
@@ -152,30 +206,40 @@ export default function ProfileScreen() {
 
         <Section
           title="Household"
-          icon={<Users size={14} color={Colors.sageDeep} strokeWidth={2} />}
+          icon={<Users size={16} color={Colors.sageDeep} strokeWidth={2} />}
           onAdd={() => goAdd("household")}
+          definition="Partner, kids, pets. I'll nudge you ahead of their birthdays."
         >
           {profile.household.length === 0 ? (
-            <EmptyRow text="Partner, kids, pets — anyone you plan around." />
+            <EmptyRow text="Anyone you plan around." />
           ) : (
-            profile.household.map((h) => (
-              <ItemRow
-                key={h.id}
-                title={h.name}
-                sub={`${h.kind}${h.detail ? ` · ${h.detail}` : ""}`}
-                onRemove={() =>
-                  confirmRemove(`Remove ${h.name}?`, () => removeHousehold(h.id))
-                }
-              />
-            ))
+            profile.household.map((h) => {
+              const bday = formatBirthday(h.birthday);
+              const subParts = [h.kind];
+              if (h.detail) subParts.push(h.detail);
+              if (bday) subParts.push(`birthday ${bday}`);
+              return (
+                <ItemRow
+                  key={h.id}
+                  title={h.name}
+                  sub={subParts.join(" · ")}
+                  onPress={() =>
+                    goAdd("household", { edit_id: h.id })
+                  }
+                  onRemove={() =>
+                    confirmRemove(`Remove ${h.name}?`, () => removeHousehold(h.id))
+                  }
+                />
+              );
+            })
           )}
         </Section>
 
         <Section
           title="Locations"
-          icon={<MapPin size={14} color={Colors.sageDeep} strokeWidth={2} />}
+          icon={<MapPin size={16} color={Colors.sageDeep} strokeWidth={2} />}
           onAdd={() => goAdd("location")}
-          definition="Places you go often — unlocks travel buffers in your plan."
+          definition="Places you go often. Unlocks travel buffers and departure times."
         >
           {profile.locations.length === 0 ? (
             <EmptyRow text="Home, work, school, gym." />
@@ -194,10 +258,10 @@ export default function ProfileScreen() {
         </Section>
 
         <Section
-          title="Hard anchors"
-          icon={<AnchorIcon size={14} color={Colors.sageDeep} strokeWidth={2} />}
+          title="Anchors"
+          icon={<AnchorIcon size={16} color={Colors.sageDeep} strokeWidth={2} />}
           onAdd={() => goAdd("anchor")}
-          definition="Fixed-day, fixed-time commitments. I plan around them — never over them."
+          definition="Fixed day + time commitments. I plan around them — never over them."
         >
           {profile.anchors.length === 0 ? (
             <EmptyRow text="School pickup, therapy, standing meetings." />
@@ -206,7 +270,7 @@ export default function ProfileScreen() {
               <ItemRow
                 key={a.id}
                 title={a.title}
-                sub={`${a.time ?? "—"} · ${formatDays(a.days)}${
+                sub={`${a.time ? formatHHMM(a.time, settings.time_format) : "—"} · ${formatDays(a.days)}${
                   a.buffer_minutes ? ` · ${a.buffer_minutes}m buffer` : ""
                 }`}
                 onRemove={() =>
@@ -218,32 +282,13 @@ export default function ProfileScreen() {
         </Section>
 
         <Section
-          title="Rules"
-          icon={<Scale size={14} color={Colors.sageDeep} strokeWidth={2} />}
-          onAdd={() => goAdd("rule")}
-          definition="Personal constraints I should honor every plan."
-        >
-          {profile.rules.length === 0 ? (
-            <EmptyRow text={`"25 min buffer home to school." "No meetings after 4."`} />
-          ) : (
-            profile.rules.map((r) => (
-              <ItemRow
-                key={r.id}
-                title={r.text}
-                onRemove={() => confirmRemove("Remove this rule?", () => removeRule(r.id))}
-              />
-            ))
-          )}
-        </Section>
-
-        <Section
           title="Recurring items"
-          icon={<Repeat size={14} color={Colors.sageDeep} strokeWidth={2} />}
+          icon={<Repeat size={16} color={Colors.sageDeep} strokeWidth={2} />}
           onAdd={() => goAdd("obligation")}
-          definition="Things that repeat on a cadence, without a fixed time — grooming, vet, refills."
+          definition="Things that repeat on a cadence without a fixed time — grooming, vet, refills."
         >
           {profile.recurring_obligations.length === 0 ? (
-            <EmptyRow text="Grooming, vet, med refills — I'll surface these over time." />
+            <EmptyRow text="I'll surface these when they come due." />
           ) : (
             profile.recurring_obligations.map((o) => (
               <ItemRow
@@ -264,8 +309,9 @@ export default function ProfileScreen() {
 
         <Section
           title="Typical durations"
-          icon={<Timer size={14} color={Colors.sageDeep} strokeWidth={2} />}
+          icon={<Timer size={16} color={Colors.sageDeep} strokeWidth={2} />}
           onAdd={() => goAdd("duration")}
+          definition="How long specific kinds of tasks really take you."
         >
           {profile.task_durations.length === 0 ? (
             <EmptyRow text={`"Dishes: 10 min." "Pull weeds: cap at 20 min."`} />
@@ -285,11 +331,12 @@ export default function ProfileScreen() {
 
         <Section
           title="Notes"
-          icon={<NotebookPen size={14} color={Colors.sageDeep} strokeWidth={2} />}
+          icon={<NotebookPen size={16} color={Colors.sageDeep} strokeWidth={2} />}
           onAdd={() => goAdd("note")}
+          definition="Anything else I should keep in mind."
         >
           {profile.notes.length === 0 ? (
-            <EmptyRow text="Anything else I should keep in mind." />
+            <EmptyRow text="Context that doesn't fit anywhere else." />
           ) : (
             profile.notes.map((n, i) => (
               <ItemRow
@@ -328,7 +375,7 @@ function Section({
     <View style={styles.section}>
       <View style={styles.sectionHeader}>
         <View style={styles.sectionHeaderLeft}>
-          {icon}
+          <View style={styles.sectionIcon}>{icon}</View>
           <Text style={styles.sectionTitle}>{title}</Text>
         </View>
         {onAdd && (
@@ -349,17 +396,22 @@ function KVRow({
   value,
   onPress,
   muted,
+  wrap,
 }: {
   label: string;
   value: string;
   onPress?: () => void;
   muted?: boolean;
+  wrap?: boolean;
 }) {
   return (
     <Pressable onPress={onPress} style={styles.kvRow}>
       <Text style={styles.kvLabel}>{label}</Text>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1 }}>
-        <Text style={[styles.kvValue, muted && { color: Colors.inkMuted }]} numberOfLines={1}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1, maxWidth: "62%" }}>
+        <Text
+          style={[styles.kvValue, muted && { color: Colors.inkMuted }]}
+          numberOfLines={wrap ? 2 : 1}
+        >
           {value}
         </Text>
         {onPress && <ChevronRight size={14} color={Colors.inkFaint} strokeWidth={2} />}
@@ -372,13 +424,15 @@ function ItemRow({
   title,
   sub,
   onRemove,
+  onPress,
 }: {
   title: string;
   sub?: string;
   onRemove: () => void;
+  onPress?: () => void;
 }) {
-  return (
-    <View style={styles.itemRow}>
+  const content = (
+    <>
       <View style={{ flex: 1, paddingRight: 12 }}>
         <Text style={styles.itemTitle}>{title}</Text>
         {sub && <Text style={styles.itemSub}>{sub}</Text>}
@@ -386,8 +440,16 @@ function ItemRow({
       <Pressable onPress={onRemove} hitSlop={10} style={styles.removeBtn}>
         <Trash2 size={16} color={Colors.inkFaint} strokeWidth={1.75} />
       </Pressable>
-    </View>
+    </>
   );
+  if (onPress) {
+    return (
+      <Pressable onPress={onPress} style={styles.itemRow}>
+        {content}
+      </Pressable>
+    );
+  }
+  return <View style={styles.itemRow}>{content}</View>;
 }
 
 function EmptyRow({ text }: { text: string }) {
@@ -399,32 +461,38 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.inkSoft,
     lineHeight: 19,
-    marginBottom: 20,
+    marginBottom: 22,
     paddingHorizontal: 4,
   },
-  section: { marginBottom: 24 },
+  section: { marginBottom: 28 },
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 6,
-    paddingHorizontal: 4,
+    paddingHorizontal: 2,
   },
-  sectionHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
+  sectionHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
+  sectionIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: Colors.creamSoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   sectionTitle: {
-    fontSize: 11,
-    letterSpacing: 1.8,
-    color: Colors.inkSoft,
+    fontSize: 22,
+    color: Colors.ink,
     fontWeight: "700",
-    textTransform: "uppercase",
+    letterSpacing: -0.5,
   },
   definition: {
-    fontSize: 12,
+    fontSize: 13,
     color: Colors.inkMuted,
     paddingHorizontal: 4,
-    marginBottom: 8,
-    lineHeight: 16,
-    fontStyle: "italic",
+    marginBottom: 10,
+    lineHeight: 18,
   },
   addBtn: {
     flexDirection: "row",
@@ -458,7 +526,50 @@ const styles = StyleSheet.create({
     borderBottomColor: Colors.borderSoft,
   },
   kvLabel: { fontSize: 14, color: Colors.ink, fontWeight: "500" },
-  kvValue: { fontSize: 14, color: Colors.sageDeep, fontWeight: "600", flexShrink: 1 },
+  kvValue: { fontSize: 14, color: Colors.sageDeep, fontWeight: "600", flexShrink: 1, textAlign: "right" },
+  subDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: Colors.borderSoft,
+  },
+  subSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 2,
+  },
+  subHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 6 },
+  subSectionTitle: {
+    fontSize: 11,
+    letterSpacing: 1.6,
+    color: Colors.sageDeep,
+    fontWeight: "700",
+    textTransform: "uppercase",
+  },
+  subDefinition: {
+    fontSize: 12,
+    color: Colors.inkMuted,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+    lineHeight: 16,
+    fontStyle: "italic",
+  },
+  addMini: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: Colors.creamSoft,
+  },
+  addMiniText: {
+    fontSize: 11,
+    color: Colors.sageDeep,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+  },
   itemRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -473,6 +584,14 @@ const styles = StyleSheet.create({
   emptyRow: {
     paddingHorizontal: 16,
     paddingVertical: 14,
+    fontSize: 13,
+    color: Colors.inkMuted,
+    fontStyle: "italic",
+    lineHeight: 18,
+  },
+  emptyRowInline: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     fontSize: 13,
     color: Colors.inkMuted,
     fontStyle: "italic",

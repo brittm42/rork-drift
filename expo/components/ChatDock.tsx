@@ -71,15 +71,15 @@ export function ChatDock({ planHeader }: Props) {
     const arr: string[] = [];
     arr.push("What's next?");
     if (planHeader) arr.push("Reshape my afternoon");
-    arr.push("Add a task");
+    arr.push("Remind me tomorrow to…");
     return arr;
   }, [planHeader]);
 
   const handleStarter = useCallback(
     (s: string) => {
-      if (s === "Add a task") {
+      if (s === "Remind me tomorrow to…") {
         setExpanded(true);
-        setDraft("");
+        setDraft("Remind me tomorrow to ");
         return;
       }
       if (Platform.OS !== "web") Haptics.selectionAsync();
@@ -333,6 +333,10 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+    backgroundColor: Colors.background,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.borderSoft,
+    paddingTop: 10,
   },
   transcriptWrap: {
     paddingHorizontal: 12,

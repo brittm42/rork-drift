@@ -35,11 +35,11 @@ import {
   requestCalendarPermission,
 } from "@/lib/calendar";
 import {
-  formatTime,
   parseTime,
   requestNotificationPermission,
   scheduleMorningNotification,
 } from "@/lib/notifications";
+import { formatHHMM } from "@/lib/time";
 import {
   extractOnboardingFacts,
   summarizeOnboarding,
@@ -147,7 +147,7 @@ export default function OnboardingScreen() {
         merge({ name: extract.name });
       }
       for (const h of extract.household) {
-        addHousehold({ kind: h.kind, name: h.name, detail: h.detail });
+        addHousehold({ kind: h.kind, name: h.name, detail: h.detail, birthday: null });
       }
       for (const a of extract.anchors) {
         addAnchor({
@@ -248,7 +248,7 @@ export default function OnboardingScreen() {
             name: extract.name ?? profile.name,
             household: [
               ...profile.household,
-              ...extract.household.map((h) => ({ ...h, id: `tmp_${Math.random()}` })),
+              ...extract.household.map((h) => ({ ...h, id: `tmp_${Math.random()}`, birthday: null })),
             ],
             anchors: [
               ...profile.anchors,
@@ -507,7 +507,7 @@ export default function OnboardingScreen() {
               </View>
               <Text style={styles.h1}>You&apos;re set.</Text>
               <Text style={styles.p}>
-                Your first plan will be ready at {formatTime(selectedTime)}.
+                Your first plan will be ready at {formatHHMM(selectedTime, settings.time_format)}.
               </Text>
             </View>
           )}
@@ -824,7 +824,7 @@ function TimeStep({
               style={[styles.timeChip, on && styles.timeChipOn]}
             >
               <Text style={[styles.timeChipText, on && styles.timeChipTextOn]}>
-                {formatTime(t)}
+                {formatHHMM(t, settings.time_format)}
               </Text>
             </Pressable>
           );

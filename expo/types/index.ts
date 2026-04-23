@@ -17,6 +17,7 @@ export type PlanItem = {
   task_id: string;
   rationale: string;
   suggested_time_window: string;
+  start_time: string | null;
 };
 
 export type CalendarEventSnapshot = {
@@ -37,6 +38,8 @@ export type DayPlan = {
   re_routed_at: string | null;
 };
 
+export type TimeFormat = "12h" | "24h";
+
 export type Settings = {
   onboarded: boolean;
   notification_time: string;
@@ -49,6 +52,9 @@ export type Settings = {
   midday_nudges: boolean;
   chat_last_cleared_at: string | null;
   location_enabled: boolean;
+  time_format: TimeFormat;
+  mapkit_token: string | null;
+  last_auto_plan_date: string | null;
 };
 
 export type Weekday = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
@@ -58,6 +64,7 @@ export type HouseholdMember = {
   kind: "partner" | "child" | "pet" | "other";
   name: string;
   detail: string | null;
+  birthday: string | null;
 };
 
 export type NamedLocation = {

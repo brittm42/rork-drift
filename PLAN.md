@@ -1,57 +1,50 @@
-# Daily OS — consolidated iteration
+# Today-screen overhaul, auto-planning, Apple Maps search, and profile polish
 
-Covers the new conversational chat on Today plus all prior feedback (onboarding tweaks, display fixes, location/Apple Maps, anchors, recurring vs. anchor clarity).
+## Today screen
 
-## Onboarding adjustments
+- [x] Auto-plan safety net: if today's plan is missing on open, generate quietly (no duplicate notification).
+- [x] Pre-notification generation is still deferred until backend is available — documented for user.
+- [x] "Re-route my day" button removed. Chat handles all mid-day adjustments.
+- [x] True chronological "On your plate today":
+  - All-day calendar items grouped at the top.
+  - Events, plan tasks, and anchors merged chronologically.
+  - Tasks show checkbox; anchors show "anchor" tag; calendar events show "event" tag.
+- [x] Plan header line ("Happy birthday…" style) removed below the Do More Together card.
+- [x] Rotating "Do more together" suggestions (up to 3 at a time) covering locations, anchors, household, tendencies, recurring, durations, energy, work, calendar write, and MapKit.
+- [x] ChatDock fully opaque background (solid fill + top divider).
+- [x] Task capture happens via chat — no separate + FAB on Today.
 
-- [x] Reword work question so unemployed / student / stay-at-home / caregiver feel seen
-- [x] Provide a concrete example for the rules/energy question
-- [x] Responsive follow-ups: if extraction returns nothing from a real reply, ask one clarifying question before advancing
-- [x] Keep summary screen with "try again" affordance
-- [x] Request Apple Calendar **write** permission during onboarding (with skip); offer again later through the CapabilityCard if skipped
+## Profile
 
-## Today display
+- [x] Bigger section headers across the page.
+- [x] "You" section: Name, Work/days, Energy patterns, Personal tendencies (subsection absorbing Rules).
+- [x] Anchors kept, with one-line description clarifying vs. Recurring items.
+- [x] Household member edit flow with birthday (month + day) support.
 
-- [x] Rename CapabilityCard tier label from "Getting richer" to "Do more together"
-- [x] Make the sub-text "Tell me more about you" instead of the first action item title
-- [x] Remove the static, non-interactive "plan header" card — keep the header note as typography only; interactivity lives in the chat dock
-- [x] All-day events stay at the top; timed events sorted chronologically
-- [x] Blend Apple Calendar events with profile anchors in the same strip, chronologically
-- [x] Lower / replace the + button — chat dock sits at the bottom and takes over task capture
-- [x] Inbox keeps a + button for quick manual capture
+## Locations / Apple MapKit JS
 
-## Conversational chat on Today
+- [x] `lib/mapkit.ts` — token exchange + `searchPlaces` using `https://maps-api.apple.com`.
+- [x] Location editor shows search-by-name results list with address/category; tap to pin.
+- [x] "Use current location" still works.
+- [x] Label field preserved.
+- [x] Settings includes MapKit JS token input (paste JWT) + disconnect.
 
-- [x] Persistent chat dock at the bottom of Today (replaces +), above tab bar
-- [x] Warm greeting empty state using the user's name + one day-aware suggestion
-- [x] Chat transcript scrolls above the dock when messages exist
-- [x] Assistant can: add tasks, reshape day (soft = do it + undo; hard = propose), add anchor/recurring/rule, answer day questions, save durable memory, create Apple Calendar events on confirmation
-- [x] Soft confirmation chips ("Saved: …", "Added to tomorrow morning") with Undo
-- [x] Typing shimmer (three dots)
-- [x] Messages retained 7 days, auto-trimmed; only today's turns sent to AI each turn
-- [x] "Clear chat history" affordance in Settings
-- [x] Durable memory layer surfaced in Profile as "What I know about you"
+## Settings
 
-## Life Context / Profile
+- [x] "Include Calendars" → "Read from".
+- [x] 12-hour / 24-hour toggle (default 12h). All times in the app reflect it.
+- [x] Morning time picker uses chosen format.
+- [x] Apple Maps section with token input.
 
-- [x] New "What I know about you" section listing saved memories, editable/deletable
-- [x] Clearer distinction between Anchors (fixed day+time commitments) and Recurring items (things that repeat at a cadence, no specific time)
-  - Rename "Recurring life admin" → "Recurring items" and add a one-line definition
-  - Add one-line definition under "Hard anchors"
+## Calendar
 
-## Location & Apple Maps
+- [x] Read behavior unchanged.
+- [x] Anchors + calendar events + plan tasks feed the unified chronological list.
 
-- [x] Request Location permission when adding a location (expo-location)
-- [x] Address search via Apple geocoder (`Location.geocodeAsync`) on submit; keep the label field intact
-- [x] "Use current location" shortcut in the Add Location flow
+## Deferred
 
-## Recurring detection (calendar-aware suggestions)
-
-- [ ] Background scan of recent calendar events to propose recurring items (e.g. haircut every 6 weeks) — deferred to a follow-up pass; scaffold the Suggestions slot on Today but leave detection TODO.
-
-## Infra
-
-- [x] New `ChatProvider` — messages + memories + mutations with tool-calling
-- [x] AI `chatTurn` function with a structured action schema (add_task, save_memory, propose_reshape, do_reshape, add_anchor, add_recurring, add_rule, create_calendar_event, answer)
-- [x] Apple Calendar write helper (`createCalendarEvent`) with graceful web fallback
-- [x] Settings: `chat_last_cleared_at`, `calendar_write_enabled`
+- [ ] Drive-time / "leave by" math (needs MapKit token in hand + Directions API wiring).
+- [ ] Pre-notification plan generation (needs backend/background task).
+- [ ] Recurring-item auto-detection from calendar history.
+- [ ] Google Calendar write.
+- [ ] Household birthday → automatic "in 2 weeks" chat nudge (data captured; surfacing logic pending).

@@ -18,6 +18,9 @@ const DEFAULTS: Settings = {
   midday_nudges: true,
   chat_last_cleared_at: null,
   location_enabled: false,
+  time_format: "12h",
+  mapkit_token: null,
+  last_auto_plan_date: null,
 };
 
 async function loadSettings(): Promise<Settings> {
