@@ -4,7 +4,7 @@ import {
   Calendar as CalendarIcon,
   Check,
 } from "lucide-react-native";
-import React, { useCallback, useMemo } from "react";
+import React, { useCallback, useMemo, useRef } from "react";
 import {
   Platform,
   Pressable,
@@ -392,12 +392,10 @@ function TimelineRow({
     const isSkipped = eventState === "skipped";
     return (
       <View style={styles.row}>
-        <Pressable
-          onPress={() => onEventCheck(item.event)}
-          onLongPress={() => onEventSkip(item.event)}
-          delayLongPress={420}
-          style={styles.rowCheckHit}
-          testID={`timeline-event-${item.event.id}`}
+        <EventCheckable
+          event={item.event}
+          onCheck={onEventCheck}
+          onSkip={onEventSkip}
         >
           <View
             style={[
@@ -414,7 +412,7 @@ function TimelineRow({
               <Icon size={10} color={Colors.sageDeep} strokeWidth={2} />
             )}
           </View>
-        </Pressable>
+        </EventCheckable>
         <View style={styles.rowBody}>
           <View style={styles.rowMeta}>
             <Text style={styles.rowTime}>{item.timeLabel}</Text>
@@ -449,6 +447,46 @@ function TimelineRow({
         <Text style={styles.rowTitleMuted}>{item.title}</Text>
       </View>
     </View>
+  );
+}
+
+function EventCheckable({
+  event,
+  onCheck,
+  onSkip,
+  children,
+}: {
+  event: CalendarEventSnapshot;
+  onCheck: (e: CalendarEventSnapshot) => void;
+  onSkip: (e: CalendarEventSnapshot) => void;
+  children: React.ReactNode;
+}) {
+  const longFiredRef = useRef<boolean>(false);
+  return (
+    <Pressable
+      onPressIn={() => {
+        longFiredRef.current = false;
+      }}
+      onPress={() => {
+        if (longFiredRef.current) {
+          console.log("[today] event long-press suppressed tap", event.id);
+          return;
+        }
+        console.log("[today] event tap", event.id);
+        onCheck(event);
+      }}
+      onLongPress={() => {
+        longFiredRef.current = true;
+        console.log("[today] event long-press", event.id);
+        onSkip(event);
+      }}
+      delayLongPress={350}
+      pressRetentionOffset={{ top: 16, bottom: 16, left: 16, right: 16 }}
+      style={styles.rowCheckHit}
+      testID={`timeline-event-${event.id}`}
+    >
+      {children}
+    </Pressable>
   );
 }
 

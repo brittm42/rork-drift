@@ -45,6 +45,8 @@ export default function SettingsScreen() {
   const { settings, update } = useSettings();
   const { clear: clearChat, todayMessages, messages } = useChat();
   const [timeOpen, setTimeOpen] = useState<boolean>(false);
+  const [readOpen, setReadOpen] = useState<boolean>(false);
+  const [writeOpen, setWriteOpen] = useState<boolean>(false);
   const [tokenDraft, setTokenDraft] = useState<string>(settings.mapkit_token ?? "");
   const [tokenEditing, setTokenEditing] = useState<boolean>(false);
   const [cals, setCals] = useState<CalendarT[]>([]);
@@ -100,10 +102,7 @@ export default function SettingsScreen() {
       setPermStatus("granted");
       update({
         calendar_enabled: true,
-        selected_calendar_ids:
-          settings.selected_calendar_ids.length > 0
-            ? settings.selected_calendar_ids
-            : list.map((c) => c.id),
+        selected_calendar_ids: settings.selected_calendar_ids,
       });
     },
     [settings.selected_calendar_ids, update]
@@ -300,8 +299,25 @@ export default function SettingsScreen() {
         />
         {settings.calendar_write_enabled && writableCals.length > 0 && (
           <View style={{ marginTop: 4 }}>
-            <Text style={styles.subhead}>WRITE EVENTS TO</Text>
-            {writableCals.map((c) => {
+            <Pressable
+              onPress={() => {
+                if (Platform.OS !== "web") Haptics.selectionAsync();
+                setWriteOpen((v) => !v);
+              }}
+              style={styles.collapsibleHeader}
+              testID="calendar-write-toggle"
+            >
+              <Text style={styles.subhead}>WRITE EVENTS TO</Text>
+              <ChevronDown
+                size={14}
+                color={Colors.inkFaint}
+                strokeWidth={2}
+                style={{
+                  transform: [{ rotate: writeOpen ? "0deg" : "-90deg" }],
+                }}
+              />
+            </Pressable>
+            {writeOpen && writableCals.map((c) => {
               const selected =
                 settings.default_write_calendar_id === c.id ||
                 (!settings.default_write_calendar_id && writableCals[0].id === c.id);
@@ -329,8 +345,27 @@ export default function SettingsScreen() {
         )}
         {settings.calendar_enabled && permStatus === "granted" && (
           <View style={{ marginTop: 8 }}>
-            <Text style={styles.subhead}>READ FROM</Text>
-            {calendarsByAccount.length === 0 ? (
+            <Pressable
+              onPress={() => {
+                if (Platform.OS !== "web") Haptics.selectionAsync();
+                setReadOpen((v) => !v);
+              }}
+              style={styles.collapsibleHeader}
+              testID="calendar-read-toggle"
+            >
+              <Text style={styles.subhead}>
+                READ FROM ({settings.selected_calendar_ids.length} selected)
+              </Text>
+              <ChevronDown
+                size={14}
+                color={Colors.inkFaint}
+                strokeWidth={2}
+                style={{
+                  transform: [{ rotate: readOpen ? "0deg" : "-90deg" }],
+                }}
+              />
+            </Pressable>
+            {readOpen && (calendarsByAccount.length === 0 ? (
               <Text style={styles.muted}>No calendars found.</Text>
             ) : (
               calendarsByAccount.map(([account, list]) => (
@@ -361,7 +396,7 @@ export default function SettingsScreen() {
                   })}
                 </View>
               ))
-            )}
+            ))}
           </View>
         )}
         {Platform.OS === "web" && (
@@ -634,6 +669,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 14,
     paddingBottom: 8,
+  },
+  collapsibleHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingRight: 16,
   },
   accountLabel: {
     fontSize: 11,

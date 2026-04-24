@@ -324,8 +324,8 @@ export default function OnboardingScreen() {
     if (granted) {
       const list = await listCalendars();
       setCals(list);
-      setSelectedCalIds(list.map((c) => c.id));
-      update({ calendar_enabled: true });
+      setSelectedCalIds([]);
+      update({ calendar_enabled: true, selected_calendar_ids: [] });
       setBusy(false);
       setPhase("calendar-pick");
     } else {
@@ -880,8 +880,8 @@ function CalendarPickStep({
       </View>
       <Text style={styles.h1}>Which calendars?</Text>
       <Text style={styles.p}>
-        I&apos;ll only read from the ones you pick. Deselect anything personal you&apos;d rather
-        keep out.
+        Nothing is on by default. Tap the calendars you want me to read so I can
+        plan around them.
       </Text>
       <View style={styles.calList}>
         {cals.map((c) => {
