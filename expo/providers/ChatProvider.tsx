@@ -6,7 +6,7 @@ import { Platform } from "react-native";
 import { chatTurn } from "@/lib/ai";
 import { createCalendarEvent } from "@/lib/calendar";
 import { getTodayEvents } from "@/lib/calendar";
-import type { ChatAction, ChatMessage, MemoryCategory, Weekday } from "@/types";
+import type { ChatAction, ChatMessage, MemoryCategory, Task, Weekday } from "@/types";
 import { usePlan } from "@/providers/PlanProvider";
 import { useProfile } from "@/providers/ProfileProvider";
 import { useSettings } from "@/providers/SettingsProvider";
@@ -53,7 +53,7 @@ export const [ChatProvider, useChat] = createContextHook(() => {
   const { profile, addMemory, addAnchor, addObligation, addRule, addHousehold, addLocation } =
     useProfile();
   const { settings } = useSettings();
-  const { tasks, addTask } = useTasks();
+  const { tasks, addTask, updateTask } = useTasks();
   const { plan, reroute } = usePlan();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -85,7 +85,33 @@ export const [ChatProvider, useChat] = createContextHook(() => {
       try {
         switch (action.kind) {
           case "add_task": {
-            await addTask(action.raw, { scheduled_for: action.scheduled_for });
+            await addTask(action.raw, {
+              scheduled_for: action.scheduled_for,
+              task_type: action.task_type,
+              energy_level: action.energy_level,
+              is_self_care: action.is_self_care,
+              cadence: action.cadence,
+            });
+            break;
+          }
+          case "update_task": {
+            const match = action.task_title_match.toLowerCase();
+            const target = [...tasks]
+              .filter((t) => !t.is_complete)
+              .sort(
+                (a, b) =>
+                  new Date(b.created_at).getTime() -
+                  new Date(a.created_at).getTime()
+              )
+              .find((t) => t.title.toLowerCase().includes(match));
+            if (target) {
+              const patch: Partial<Task> = { needs_classification: false, pending_question: null };
+              if (action.task_type) patch.task_type = action.task_type;
+              if (action.energy_level !== null) patch.energy_level = action.energy_level;
+              if (action.is_self_care !== null) patch.is_self_care = action.is_self_care;
+              if (action.cadence !== null) patch.cadence = action.cadence;
+              updateTask(target.id, patch);
+            }
             break;
           }
           case "save_memory": {
@@ -162,6 +188,8 @@ export const [ChatProvider, useChat] = createContextHook(() => {
     },
     [
       addTask,
+      updateTask,
+      tasks,
       addMemory,
       addAnchor,
       addObligation,
@@ -308,6 +336,25 @@ export const [ChatProvider, useChat] = createContextHook(() => {
     save(() => []);
   }, [save]);
 
+  const promptFollowUp = useCallback(
+    (input: { kind: "event_complete"; title: string }) => {
+      const text =
+        input.kind === "event_complete"
+          ? `That's “${input.title}” handled. Anything that came out of it I should capture — a follow-up, a reminder, a note?`
+          : "Anything you want me to capture?";
+      save((prev) => [
+        ...prev,
+        {
+          id: uid(),
+          from: "bot",
+          text,
+          created_at: new Date().toISOString(),
+        },
+      ]);
+    },
+    [save]
+  );
+
   // Today's messages (what's shown in the dock transcript)
   const todayMessages = useMemo(() => {
     const now = new Date();
@@ -324,6 +371,7 @@ export const [ChatProvider, useChat] = createContextHook(() => {
       confirmProposal,
       undoAction,
       clear,
+      promptFollowUp,
     }),
     [
       messages,
@@ -334,6 +382,7 @@ export const [ChatProvider, useChat] = createContextHook(() => {
       confirmProposal,
       undoAction,
       clear,
+      promptFollowUp,
     ]
   );
 });

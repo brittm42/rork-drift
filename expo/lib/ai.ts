@@ -16,6 +16,21 @@ const HAIKU = "anthropic/claude-haiku-4.5";
 const taskParseSchema = z.object({
   title: z.string(),
   urgency_flag: z.boolean(),
+  task_type: z
+    .enum([
+      "fixed_anchor",
+      "committed_block",
+      "floatable",
+      "energy_matched",
+      "reactive",
+      "aspirational",
+      "unclassified",
+    ])
+    .default("unclassified"),
+  energy_level: z.enum(["deep", "light"]).nullable().default(null),
+  is_self_care: z.boolean().default(false),
+  cadence: z.string().nullable().default(null),
+  clarifying_question: z.string().nullable().default(null),
 });
 
 export type ParsedTask = z.infer<typeof taskParseSchema>;
@@ -93,7 +108,23 @@ export async function parseTaskInput(raw: string, profile?: UserProfile): Promis
     const { object } = await generateObject({
       model: gateway(HAIKU),
       schema: taskParseSchema,
-      prompt: `Clean up this task for a personal to-do list. Fix typos, normalize capitalization, make it a clear action item. Keep it concise and preserve intent exactly — do not add scope. Extract urgency (true/false) — urgency signals include: "today", "urgent", "ASAP", "now", "by [date/time]", "immediately".
+      prompt: `Clean up this task and classify it for a personal planning system. Fix typos, normalize capitalization, make it a clear action item. Keep it concise and preserve intent exactly — do not add scope.
+
+Extract urgency (true/false) — signals: "today", "urgent", "ASAP", "now", "by [date/time]", "immediately".
+
+Classify task_type as ONE of:
+- fixed_anchor: non-negotiable, time-specific commitments (school pickup 3:30, therapy). Only if user clearly stated a fixed day + time.
+- committed_block: scheduled with someone else, could shift with coordination (dentist, coffee with friend).
+- floatable: needs to happen within a window (day/week) but not time-specific (order meds this week, follow up with recruiter).
+- energy_matched: requires specific cognitive state (deep focus writing, hard conversation) or is fine while depleted (admin, scheduling).
+- reactive: follow-up spawned by another task/event (schedule 6mo dentist after dentist).
+- aspirational: wants-to-do, not committed (gym, reading, creative).
+- unclassified: truly ambiguous — use this if you aren't confident.
+
+energy_level: "deep" if cognitively heavy, "light" if fine while tired, null otherwise.
+is_self_care: true if this is self-care (gym, meditation, therapy, rest, walk, hobby time).
+cadence: short phrase like "every 6 weeks" if a recurrence is stated, null otherwise.
+clarifying_question: set ONE short question ONLY if you are genuinely unsure how to classify and the answer would materially change timing — e.g. "Is this a hard deadline or something you want to get to this week?". Null if confident. Never ask for trivia.
 
 User context (for disambiguation only — do NOT expand the task):
 ${profileBrief(profile)}
@@ -103,7 +134,15 @@ Input: ${JSON.stringify(raw)}`,
     return object;
   } catch (e) {
     console.log("[ai] parseTaskInput failed, falling back to raw:", e);
-    return { title: raw.trim(), urgency_flag: false };
+    return {
+      title: raw.trim(),
+      urgency_flag: false,
+      task_type: "unclassified" as const,
+      energy_level: null,
+      is_self_care: false,
+      cadence: null,
+      clarifying_question: null,
+    };
   }
 }
 
@@ -380,6 +419,38 @@ const chatActionSchema = z.discriminatedUnion("kind", [
     kind: z.literal("add_task"),
     raw: z.string(),
     scheduled_for: z.enum(["today", "tomorrow", "inbox"]),
+    task_type: z
+      .enum([
+        "fixed_anchor",
+        "committed_block",
+        "floatable",
+        "energy_matched",
+        "reactive",
+        "aspirational",
+        "unclassified",
+      ])
+      .default("unclassified"),
+    energy_level: z.enum(["deep", "light"]).nullable().default(null),
+    is_self_care: z.boolean().default(false),
+    cadence: z.string().nullable().default(null),
+    confirmation: z.string(),
+  }),
+  z.object({
+    kind: z.literal("update_task"),
+    task_title_match: z.string(),
+    task_type: z
+      .enum([
+        "fixed_anchor",
+        "committed_block",
+        "floatable",
+        "energy_matched",
+        "reactive",
+        "aspirational",
+      ])
+      .nullable(),
+    energy_level: z.enum(["deep", "light"]).nullable(),
+    is_self_care: z.boolean().nullable(),
+    cadence: z.string().nullable(),
     confirmation: z.string(),
   }),
   z.object({
@@ -508,7 +579,8 @@ Your job is to produce:
 2) An "actions" array — structured things to do. One message can trigger multiple actions (e.g. answer + save_memory). Keep action count small.
 
 Action rules:
-- add_task: for any task capture ("remind me tomorrow to grab sunscreen" → scheduled_for: "tomorrow"). "confirmation" is a short chip label like "Added to tomorrow morning".
+- add_task: for any task capture ("remind me tomorrow to grab sunscreen" → scheduled_for: "tomorrow"). ALSO classify task_type and fill the other fields (energy_level, is_self_care, cadence) using the same definitions as the task parser: fixed_anchor | committed_block | floatable | energy_matched | reactive | aspirational | unclassified. If you're not sure, use unclassified and append ONE short follow-up question to the end of your message instead of inventing a classification. "confirmation" is a short chip label like "Added to tomorrow morning".
+- update_task: use when the user answers a classification follow-up about a recently added task. task_title_match should be a distinctive substring of that task's title so the app can find it. Only set the fields the user actually clarified; leave the rest null.
 - save_memory: for durable facts about the person's life ("I got a dog that needs grooming every 4 weeks", "my home is in Austin"). DO NOT save one-off tasks as memories. "confirmation" chip like "Saved: dog grooming every 4 weeks".
 - add_anchor: ONLY for fixed-day-and-time commitments ("school pickup 3:30 M-F"). Not for vague "I try to work out mornings".
 - add_recurring: for cadence-based items without a specific time ("dog grooming every 4 weeks", "haircut every 6 weeks"). cadence is a short phrase.

@@ -4,6 +4,37 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { parseTaskInput } from "@/lib/ai";
 import type { Task } from "@/types";
+
+function defaultTaskFields(): Omit<Task, "id" | "raw_input" | "title" | "urgency_flag" | "created_at"> {
+  return {
+    is_complete: false,
+    completed_at: null,
+    last_surfaced_at: null,
+    snooze_until: null,
+    recurrence_rule: null,
+    due_date: null,
+    scheduled_for: null,
+    task_type: "unclassified",
+    energy_level: null,
+    window_start: null,
+    window_end: null,
+    is_self_care: false,
+    is_protected: false,
+    parent_task_id: null,
+    cadence: null,
+    needs_classification: true,
+    pending_question: null,
+  };
+}
+
+function withDefaults(t: Partial<Task> & Pick<Task, "id" | "title" | "created_at">): Task {
+  return {
+    raw_input: t.raw_input ?? t.title,
+    urgency_flag: t.urgency_flag ?? false,
+    ...defaultTaskFields(),
+    ...t,
+  } as Task;
+}
 import { useProfile } from "@/providers/ProfileProvider";
 
 const STORAGE_KEY = "drift:tasks:v1";
@@ -18,7 +49,7 @@ async function loadTasks(): Promise<Task[]> {
     if (!raw) return [];
     const parsed = JSON.parse(raw) as Task[];
     if (!Array.isArray(parsed)) return [];
-    return parsed.map((t) => ({ scheduled_for: null, ...t }));
+    return parsed.map((t) => withDefaults(t));
   } catch (e) {
     console.log("[tasks] load error:", e);
     return [];
@@ -61,42 +92,81 @@ export const [TasksProvider, useTasks] = createContextHook(() => {
   });
 
   const addTask = useCallback(
-    async (raw: string, opts?: { scheduled_for?: Task["scheduled_for"] }): Promise<Task> => {
+    async (
+      raw: string,
+      opts?: {
+        scheduled_for?: Task["scheduled_for"];
+        task_type?: Task["task_type"];
+        energy_level?: Task["energy_level"];
+        is_self_care?: boolean;
+        cadence?: string | null;
+        parent_task_id?: string | null;
+        skipAiParse?: boolean;
+      }
+    ): Promise<Task> => {
       const trimmed = raw.trim();
       if (!trimmed) throw new Error("empty");
       const now = new Date().toISOString();
-      const optimistic: Task = {
+      const optimistic: Task = withDefaults({
         id: uid(),
         raw_input: trimmed,
         title: trimmed,
         urgency_flag: /\b(today|urgent|asap|now|immediately|by)\b/i.test(trimmed),
-        is_complete: false,
-        completed_at: null,
         created_at: now,
-        last_surfaced_at: null,
-        snooze_until: null,
-        recurrence_rule: null,
-        due_date: null,
         scheduled_for: opts?.scheduled_for ?? null,
-      };
+        task_type: opts?.task_type ?? "unclassified",
+        energy_level: opts?.energy_level ?? null,
+        is_self_care: opts?.is_self_care ?? false,
+        cadence: opts?.cadence ?? null,
+        parent_task_id: opts?.parent_task_id ?? null,
+        needs_classification: !opts?.task_type || opts.task_type === "unclassified",
+      });
       setTasks((prev) => {
         const next = [optimistic, ...prev];
         persist(next);
         return next;
       });
 
+      if (opts?.skipAiParse) return optimistic;
+
       try {
         const parsed = await addMutation.mutateAsync(trimmed);
+        const resolvedType: Task["task_type"] =
+          opts?.task_type && opts.task_type !== "unclassified"
+            ? opts.task_type
+            : parsed.task_type ?? "unclassified";
         setTasks((prev) => {
           const next = prev.map((t) =>
             t.id === optimistic.id
-              ? { ...t, title: parsed.title, urgency_flag: parsed.urgency_flag }
+              ? {
+                  ...t,
+                  title: parsed.title,
+                  urgency_flag: parsed.urgency_flag,
+                  task_type: resolvedType,
+                  energy_level: t.energy_level ?? parsed.energy_level ?? null,
+                  is_self_care: t.is_self_care || parsed.is_self_care === true,
+                  cadence: t.cadence ?? parsed.cadence ?? null,
+                  pending_question: parsed.clarifying_question ?? null,
+                  needs_classification:
+                    resolvedType === "unclassified" || !!parsed.clarifying_question,
+                }
               : t
           );
           persist(next);
           return next;
         });
-        return { ...optimistic, title: parsed.title, urgency_flag: parsed.urgency_flag };
+        return {
+          ...optimistic,
+          title: parsed.title,
+          urgency_flag: parsed.urgency_flag,
+          task_type: resolvedType,
+          energy_level: optimistic.energy_level ?? parsed.energy_level ?? null,
+          is_self_care: optimistic.is_self_care || parsed.is_self_care === true,
+          cadence: optimistic.cadence ?? parsed.cadence ?? null,
+          pending_question: parsed.clarifying_question ?? null,
+          needs_classification:
+            resolvedType === "unclassified" || !!parsed.clarifying_question,
+        };
       } catch (e) {
         console.log("[tasks] AI parse failed, keeping raw:", e);
         return optimistic;
@@ -104,6 +174,14 @@ export const [TasksProvider, useTasks] = createContextHook(() => {
     },
     [addMutation]
   );
+
+  const updateTask = useCallback((id: string, patch: Partial<Task>) => {
+    setTasks((prev) => {
+      const next = prev.map((t) => (t.id === id ? { ...t, ...patch } : t));
+      persist(next);
+      return next;
+    });
+  }, []);
 
   const completeTask = useCallback((id: string) => {
     const now = new Date().toISOString();
@@ -162,11 +240,12 @@ export const [TasksProvider, useTasks] = createContextHook(() => {
       byId,
       hydrated,
       addTask,
+      updateTask,
       completeTask,
       uncompleteTask,
       deleteTask,
       save,
     }),
-    [tasks, incomplete, completedToday, byId, hydrated, addTask, completeTask, uncompleteTask, deleteTask, save]
+    [tasks, incomplete, completedToday, byId, hydrated, addTask, updateTask, completeTask, uncompleteTask, deleteTask, save]
   );
 });

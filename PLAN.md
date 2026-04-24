@@ -1,51 +1,39 @@
-# Today-screen overhaul, auto-planning, Apple Maps search, and profile polish
+# Task types, Stuff Drawer, and checkable calendar events
+
+## Task type system
+
+- [x] Six task types on the `Task` model: `fixed_anchor`, `committed_block`, `floatable`, `energy_matched`, `reactive`, `aspirational` (plus `unclassified` until the AI or user decides).
+- [x] Per-task fields: `energy_level` (deep/light), `is_self_care`, `cadence`, `parent_task_id`, `is_protected`, `window_start`/`window_end`, `needs_classification`, `pending_question`.
+- [x] `parseTaskInput` (Haiku) classifies on capture, can return a single clarifying follow-up question instead of guessing.
+- [x] Chat `add_task` action carries the classification; new `update_task` action lets the chat answer a follow-up and refine an existing task by title match.
+- [x] Self-care count surfaced in the drawer header badge.
+
+## Stuff Drawer (formerly Inbox)
+
+- [x] Tab renamed "Drawer" with Archive icon; route file `app/(tabs)/drawer.tsx`.
+- [x] Grouped, collapsible sections: "Needs a quick sort" first (shows pending_question inline), then the six task types, then Done (collapsed by default).
+- [x] Each row shows meta chips: deep focus / low-lift, cadence, "for you" for self-care.
+- [x] Urgency dot + urgent tag preserved.
+- [x] FAB retained on Drawer only (Today captures via chat).
 
 ## Today screen
 
-- [x] Auto-plan safety net: if today's plan is missing on open, generate quietly (no duplicate notification).
-- [x] Pre-notification generation is still deferred until backend is available — documented for user.
-- [x] "Re-route my day" button removed. Chat handles all mid-day adjustments.
-- [x] Plan sticks once generated. Chat `do_reshape` is promoted to a confirm-required proposal — never auto re-routes without user acceptance.
-- [x] True chronological "On your plate today":
-  - All-day calendar items grouped at the top.
-  - Events, plan tasks, and anchors merged chronologically.
-  - Tasks show checkbox; anchors show "anchor" tag; calendar events show "event" tag.
-- [x] Plan header line ("Happy birthday…" style) removed below the Do More Together card.
-- [x] Collapsible "Do more together" card. Default collapsed; tap to expand. Stable 3-suggestion sample per app session (no mid-session rotation).
-- [x] ChatDock fully opaque background (solid fill + top divider).
-- [x] Task capture happens via chat — no separate + FAB on Today.
-
-## Profile
-
-- [x] Bigger section headers across the page.
-- [x] "You" section: Name, Work/days, Energy patterns, Personal tendencies (subsection absorbing Rules).
-- [x] Anchors kept, with one-line description clarifying vs. Recurring items.
-- [x] Household member edit flow with birthday (month + day) support.
-
-## Locations / Apple MapKit JS
-
-- [x] `lib/mapkit.ts` — token exchange + `searchPlaces` using `https://maps-api.apple.com`.
-- [x] Location editor shows search-by-name results list with address/category; tap to pin.
-- [x] "Use current location" still works.
-- [x] Label field preserved.
-- [x] Settings includes MapKit JS token input (paste JWT) + disconnect.
-
-## Settings
-
-- [x] "Include Calendars" → "Read from".
-- [x] 12-hour / 24-hour toggle (default 12h). All times in the app reflect it.
-- [x] Morning time picker uses chosen format.
-- [x] Apple Maps section with token input.
-
-## Calendar
-
-- [x] Read behavior unchanged.
-- [x] Anchors + calendar events + plan tasks feed the unified chronological list.
+- [x] Calendar events are now checkable.
+  - Tap = mark complete (strikethrough + check); the chat dock posts a follow-up prompt asking whether anything came out of the event.
+  - Long-press = mark skipped (dashed bar + "skipped" tag, no prompt).
+  - Tap again un-sets the state.
+  - Event states persist for today only (cleared on date rollover).
+- [x] Anchors remain read-only (no checkbox).
 
 ## Deferred
 
-- [ ] Drive-time / "leave by" math (needs MapKit token in hand + Directions API wiring).
-- [ ] Pre-notification plan generation (needs backend/background task).
+- [ ] Post-completion follow-up for plan tasks (currently only events trigger the follow-up prompt).
+- [ ] Long-press on drawer rows to edit classification inline.
+- [ ] Protected aspirational enforcement (planner respects `is_protected` → gentle pushback when skipped).
+- [ ] Reactive-task inference from calendar event titles (e.g. dentist → "schedule 6mo follow-up").
+- [ ] Self-care quota ("at least one most days") surfaced in the planner prompt and nudged if missing.
+- [ ] Drive-time / "leave by" math.
+- [ ] Pre-notification plan generation (needs backend).
 - [ ] Recurring-item auto-detection from calendar history.
 - [ ] Google Calendar write.
-- [ ] Household birthday → automatic "in 2 weeks" chat nudge (data captured; surfacing logic pending).
+- [ ] Household birthday auto-nudge.

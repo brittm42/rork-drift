@@ -10,6 +10,29 @@ import { useTasks } from "@/providers/TasksProvider";
 import { useProfile } from "@/providers/ProfileProvider";
 
 const STORAGE_KEY = "drift:plan:v1";
+const EVENT_STATE_KEY = "drift:event-states:v1";
+
+type EventStateMap = Record<string, "done" | "skipped">;
+type StoredEventStates = { date: string; states: EventStateMap };
+
+async function loadEventStates(): Promise<StoredEventStates | null> {
+  try {
+    const raw = await AsyncStorage.getItem(EVENT_STATE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as StoredEventStates;
+  } catch {
+    return null;
+  }
+}
+
+async function persistEventStates(v: StoredEventStates | null): Promise<void> {
+  try {
+    if (v) await AsyncStorage.setItem(EVENT_STATE_KEY, JSON.stringify(v));
+    else await AsyncStorage.removeItem(EVENT_STATE_KEY);
+  } catch (e) {
+    console.log("[plan] event states persist error:", e);
+  }
+}
 
 function todayISO(): string {
   const d = new Date();
@@ -42,6 +65,7 @@ export const [PlanProvider, usePlan] = createContextHook(() => {
   const [plan, setPlan] = useState<DayPlan | null>(null);
   const [hydrated, setHydrated] = useState<boolean>(false);
   const [autoTried, setAutoTried] = useState<boolean>(false);
+  const [eventStates, setEventStates] = useState<EventStateMap>({});
 
   const query = useQuery<DayPlan | null>({
     queryKey: ["plan"],
@@ -55,6 +79,29 @@ export const [PlanProvider, usePlan] = createContextHook(() => {
       setHydrated(true);
     }
   }, [query.data, query.isSuccess, hydrated]);
+
+  useEffect(() => {
+    loadEventStates().then((stored) => {
+      if (stored && stored.date === todayISO()) {
+        setEventStates(stored.states);
+      } else if (stored) {
+        persistEventStates(null);
+      }
+    });
+  }, []);
+
+  const setEventState = useCallback(
+    (eventId: string, state: "done" | "skipped" | null) => {
+      setEventStates((prev) => {
+        const next = { ...prev };
+        if (state === null) delete next[eventId];
+        else next[eventId] = state;
+        persistEventStates({ date: todayISO(), states: next });
+        return next;
+      });
+    },
+    []
+  );
 
   const generateMutation = useMutation({
     mutationFn: async (opts: { reroute?: boolean } = {}) => {
@@ -148,7 +195,9 @@ export const [PlanProvider, usePlan] = createContextHook(() => {
       reroute: () => generateMutation.mutateAsync({ reroute: true }),
       clearPlan,
       error: generateMutation.error as Error | null,
+      eventStates,
+      setEventState,
     }),
-    [todayPlan, hydrated, generateMutation, clearPlan]
+    [todayPlan, hydrated, generateMutation, clearPlan, eventStates, setEventState]
   );
 });

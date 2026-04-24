@@ -17,6 +17,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "@/constants/colors";
 import { usePlan } from "@/providers/PlanProvider";
+import { useChat } from "@/providers/ChatProvider";
 import { useProfile } from "@/providers/ProfileProvider";
 import { useSettings } from "@/providers/SettingsProvider";
 import { useTasks } from "@/providers/TasksProvider";
@@ -154,10 +155,11 @@ function buildTimeline(params: {
 
 export default function TodayScreen() {
   const insets = useSafeAreaInsets();
-  const { plan, generate, isGenerating } = usePlan();
+  const { plan, generate, isGenerating, eventStates, setEventState } = usePlan();
   const { completedToday, byId, completeTask, uncompleteTask } = useTasks();
   const { settings } = useSettings();
   const { profile } = useProfile();
+  const { promptFollowUp } = useChat();
 
   const planTasks = useMemo(() => {
     if (!plan) return [] as { item: PlanItem; task: Task }[];
@@ -216,6 +218,32 @@ export default function TodayScreen() {
     [completeTask, uncompleteTask]
   );
 
+  const handleEventCheck = useCallback(
+    (event: CalendarEventSnapshot) => {
+      const current = eventStates[event.id];
+      if (current === "done") {
+        setEventState(event.id, null);
+        return;
+      }
+      if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      setEventState(event.id, "done");
+      promptFollowUp({
+        kind: "event_complete",
+        title: event.title,
+      });
+    },
+    [eventStates, setEventState, promptFollowUp]
+  );
+
+  const handleEventSkip = useCallback(
+    (event: CalendarEventSnapshot) => {
+      if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      const current = eventStates[event.id];
+      setEventState(event.id, current === "skipped" ? null : "skipped");
+    },
+    [eventStates, setEventState]
+  );
+
   const hasPlanContext = !!plan || profile.anchors.length > 0;
 
   return (
@@ -265,6 +293,11 @@ export default function TodayScreen() {
                     key={b.id}
                     item={b}
                     onToggle={handleComplete}
+                    eventState={
+                      b.kind === "event" ? eventStates[b.event.id] ?? null : null
+                    }
+                    onEventCheck={handleEventCheck}
+                    onEventSkip={handleEventSkip}
                   />
                 ))}
                 {timedItems.map((b) => (
@@ -272,6 +305,11 @@ export default function TodayScreen() {
                     key={b.id}
                     item={b}
                     onToggle={handleComplete}
+                    eventState={
+                      b.kind === "event" ? eventStates[b.event.id] ?? null : null
+                    }
+                    onEventCheck={handleEventCheck}
+                    onEventSkip={handleEventSkip}
                   />
                 ))}
               </View>
@@ -308,9 +346,15 @@ export default function TodayScreen() {
 function TimelineRow({
   item,
   onToggle,
+  eventState,
+  onEventCheck,
+  onEventSkip,
 }: {
   item: TimelineItem;
   onToggle: (taskId: string, isComplete: boolean) => void;
+  eventState: "done" | "skipped" | null;
+  onEventCheck: (e: CalendarEventSnapshot) => void;
+  onEventSkip: (e: CalendarEventSnapshot) => void;
 }) {
   if (item.kind === "task") {
     const task = item.task;
@@ -342,6 +386,53 @@ function TimelineRow({
   const isAnchor = item.kind === "anchor";
   const Icon = isAnchor ? AnchorIcon : CalendarIcon;
   const tagText = isAnchor ? "anchor" : "event";
+
+  if (item.kind === "event") {
+    const isDone = eventState === "done";
+    const isSkipped = eventState === "skipped";
+    return (
+      <View style={styles.row}>
+        <Pressable
+          onPress={() => onEventCheck(item.event)}
+          onLongPress={() => onEventSkip(item.event)}
+          delayLongPress={420}
+          style={styles.rowCheckHit}
+          testID={`timeline-event-${item.event.id}`}
+        >
+          <View
+            style={[
+              styles.checkBox,
+              isDone && styles.checkBoxDone,
+              isSkipped && styles.checkBoxSkipped,
+            ]}
+          >
+            {isDone ? (
+              <Check size={12} color={Colors.paper} strokeWidth={3} />
+            ) : isSkipped ? (
+              <View style={styles.skipBar} />
+            ) : (
+              <Icon size={10} color={Colors.sageDeep} strokeWidth={2} />
+            )}
+          </View>
+        </Pressable>
+        <View style={styles.rowBody}>
+          <View style={styles.rowMeta}>
+            <Text style={styles.rowTime}>{item.timeLabel}</Text>
+            <Text style={styles.ghostTag}>{tagText}</Text>
+            {isSkipped && <Text style={styles.skipTag}>skipped</Text>}
+          </View>
+          <Text
+            style={[
+              styles.rowTitleMuted,
+              (isDone || isSkipped) && styles.rowTitleStruck,
+            ]}
+          >
+            {item.title}
+          </Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.row}>
@@ -509,6 +600,27 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     letterSpacing: -0.1,
     lineHeight: 22,
+  },
+  rowTitleStruck: {
+    color: Colors.inkMuted,
+    textDecorationLine: "line-through",
+  },
+  checkBoxSkipped: {
+    backgroundColor: Colors.creamSoft,
+    borderColor: Colors.inkFaint,
+  },
+  skipBar: {
+    width: 10,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: Colors.inkMuted,
+  },
+  skipTag: {
+    fontSize: 9,
+    letterSpacing: 1.3,
+    color: Colors.inkMuted,
+    fontWeight: "700",
+    textTransform: "uppercase",
   },
   rowSub: {
     fontSize: 13,

@@ -1,3 +1,14 @@
+export type TaskType =
+  | "fixed_anchor"
+  | "committed_block"
+  | "floatable"
+  | "energy_matched"
+  | "reactive"
+  | "aspirational"
+  | "unclassified";
+
+export type EnergyLevel = "deep" | "light" | null;
+
 export type Task = {
   id: string;
   raw_input: string;
@@ -11,7 +22,56 @@ export type Task = {
   recurrence_rule: string | null;
   due_date: string | null;
   scheduled_for: string | null;
+  task_type: TaskType;
+  energy_level: EnergyLevel;
+  window_start: string | null;
+  window_end: string | null;
+  is_self_care: boolean;
+  is_protected: boolean;
+  parent_task_id: string | null;
+  cadence: string | null;
+  needs_classification: boolean;
+  pending_question: string | null;
 };
+
+export const TASK_TYPE_META: Record<
+  Exclude<TaskType, "unclassified">,
+  { label: string; blurb: string }
+> = {
+  fixed_anchor: {
+    label: "Fixed anchors",
+    blurb: "Non-negotiable, time-specific. Everything routes around these.",
+  },
+  committed_block: {
+    label: "Committed blocks",
+    blurb: "Scheduled, but could shift with reason and coordination.",
+  },
+  floatable: {
+    label: "Floatable",
+    blurb: "Needs to happen this week — slot into open time.",
+  },
+  energy_matched: {
+    label: "Energy-matched",
+    blurb: "Timing depends on how much brain you have.",
+  },
+  reactive: {
+    label: "Follow-ups",
+    blurb: "Downstream of something else. Captured so nothing falls through.",
+  },
+  aspirational: {
+    label: "Aspirational",
+    blurb: "What you want to make room for, even when life gets busy.",
+  },
+};
+
+export const TASK_TYPE_ORDER: Exclude<TaskType, "unclassified">[] = [
+  "fixed_anchor",
+  "committed_block",
+  "floatable",
+  "energy_matched",
+  "reactive",
+  "aspirational",
+];
 
 export type PlanItem = {
   task_id: string;

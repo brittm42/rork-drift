@@ -1,5 +1,5 @@
 import { Tabs } from "expo-router";
-import { Inbox, Settings as SettingsIcon, Sunrise } from "lucide-react-native";
+import { Archive, Settings as SettingsIcon, Sunrise } from "lucide-react-native";
 import React from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import { Colors } from "@/constants/colors";
@@ -35,10 +35,10 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="inbox"
+        name="drawer"
         options={{
-          title: "Inbox",
-          tabBarIcon: ({ color, size }) => <Inbox color={color} size={size - 2} strokeWidth={1.75} />,
+          title: "Drawer",
+          tabBarIcon: ({ color, size }) => <Archive color={color} size={size - 2} strokeWidth={1.75} />,
         }}
       />
       <Tabs.Screen
