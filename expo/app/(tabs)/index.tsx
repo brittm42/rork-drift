@@ -155,7 +155,15 @@ function buildTimeline(params: {
 
 export default function TodayScreen() {
   const insets = useSafeAreaInsets();
-  const { plan, generate, isGenerating, eventStates, setEventState } = usePlan();
+  const {
+    plan,
+    generate,
+    isGenerating,
+    eventStates,
+    setEventState,
+    taskSkips,
+    setTaskSkip,
+  } = usePlan();
   const { completedToday, byId, completeTask, uncompleteTask } = useTasks();
   const { settings } = useSettings();
   const { profile } = useProfile();
@@ -212,10 +220,23 @@ export default function TodayScreen() {
   const handleComplete = useCallback(
     (taskId: string, isComplete: boolean) => {
       if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      if (isComplete) uncompleteTask(taskId);
-      else completeTask(taskId);
+      if (isComplete) {
+        uncompleteTask(taskId);
+      } else {
+        if (taskSkips[taskId]) setTaskSkip(taskId, false);
+        completeTask(taskId);
+      }
     },
-    [completeTask, uncompleteTask]
+    [completeTask, uncompleteTask, taskSkips, setTaskSkip]
+  );
+
+  const handleTaskSkip = useCallback(
+    (taskId: string) => {
+      if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      const current = taskSkips[taskId] === true;
+      setTaskSkip(taskId, !current);
+    },
+    [taskSkips, setTaskSkip]
   );
 
   const handleEventCheck = useCallback(
@@ -296,8 +317,12 @@ export default function TodayScreen() {
                     eventState={
                       b.kind === "event" ? eventStates[b.event.id] ?? null : null
                     }
+                    taskSkipped={
+                      b.kind === "task" ? taskSkips[b.task.id] === true : false
+                    }
                     onEventCheck={handleEventCheck}
                     onEventSkip={handleEventSkip}
+                    onTaskSkip={handleTaskSkip}
                   />
                 ))}
                 {timedItems.map((b) => (
@@ -308,8 +333,12 @@ export default function TodayScreen() {
                     eventState={
                       b.kind === "event" ? eventStates[b.event.id] ?? null : null
                     }
+                    taskSkipped={
+                      b.kind === "task" ? taskSkips[b.task.id] === true : false
+                    }
                     onEventCheck={handleEventCheck}
                     onEventSkip={handleEventSkip}
+                    onTaskSkip={handleTaskSkip}
                   />
                 ))}
               </View>
@@ -347,35 +376,51 @@ function TimelineRow({
   item,
   onToggle,
   eventState,
+  taskSkipped,
   onEventCheck,
   onEventSkip,
+  onTaskSkip,
 }: {
   item: TimelineItem;
   onToggle: (taskId: string, isComplete: boolean) => void;
   eventState: "done" | "skipped" | null;
+  taskSkipped: boolean;
   onEventCheck: (e: CalendarEventSnapshot) => void;
   onEventSkip: (e: CalendarEventSnapshot) => void;
+  onTaskSkip: (taskId: string) => void;
 }) {
   if (item.kind === "task") {
     const task = item.task;
     return (
       <View style={styles.row}>
-        <Pressable
-          onPress={() => onToggle(task.id, task.is_complete)}
-          style={styles.rowCheckHit}
-          testID={`timeline-task-${task.id}`}
+        <TaskCheckable
+          taskId={task.id}
+          isComplete={task.is_complete}
+          onToggle={onToggle}
+          onSkip={onTaskSkip}
         >
-          <View style={styles.checkBox}>
-            {task.urgency_flag && <View style={styles.urgencyDot} />}
+          <View
+            style={[styles.checkBox, taskSkipped && styles.checkBoxSkipped]}
+          >
+            {taskSkipped ? (
+              <View style={styles.skipBar} />
+            ) : (
+              task.urgency_flag && <View style={styles.urgencyDot} />
+            )}
           </View>
-        </Pressable>
+        </TaskCheckable>
         <View style={styles.rowBody}>
           <View style={styles.rowMeta}>
             <Text style={styles.rowTime}>{item.timeLabel}</Text>
-            {task.urgency_flag && <Text style={styles.urgentTag}>urgent</Text>}
+            {task.urgency_flag && !taskSkipped && (
+              <Text style={styles.urgentTag}>urgent</Text>
+            )}
+            {taskSkipped && <Text style={styles.skipTag}>skipped</Text>}
           </View>
-          <Text style={styles.rowTitle}>{item.title}</Text>
-          {item.item.rationale && (
+          <Text style={[styles.rowTitle, taskSkipped && styles.rowTitleStruck]}>
+            {item.title}
+          </Text>
+          {item.item.rationale && !taskSkipped && (
             <Text style={styles.rowSub}>{item.item.rationale}</Text>
           )}
         </View>
@@ -447,6 +492,48 @@ function TimelineRow({
         <Text style={styles.rowTitleMuted}>{item.title}</Text>
       </View>
     </View>
+  );
+}
+
+function TaskCheckable({
+  taskId,
+  isComplete,
+  onToggle,
+  onSkip,
+  children,
+}: {
+  taskId: string;
+  isComplete: boolean;
+  onToggle: (taskId: string, isComplete: boolean) => void;
+  onSkip: (taskId: string) => void;
+  children: React.ReactNode;
+}) {
+  const longFiredRef = useRef<boolean>(false);
+  return (
+    <Pressable
+      onPressIn={() => {
+        longFiredRef.current = false;
+      }}
+      onPress={() => {
+        if (longFiredRef.current) {
+          console.log("[today] task long-press suppressed tap", taskId);
+          return;
+        }
+        console.log("[today] task tap", taskId);
+        onToggle(taskId, isComplete);
+      }}
+      onLongPress={() => {
+        longFiredRef.current = true;
+        console.log("[today] task long-press", taskId);
+        onSkip(taskId);
+      }}
+      delayLongPress={350}
+      pressRetentionOffset={{ top: 16, bottom: 16, left: 16, right: 16 }}
+      style={styles.rowCheckHit}
+      testID={`timeline-task-${taskId}`}
+    >
+      {children}
+    </Pressable>
   );
 }
 

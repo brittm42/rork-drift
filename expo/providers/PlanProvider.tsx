@@ -11,9 +11,13 @@ import { useProfile } from "@/providers/ProfileProvider";
 
 const STORAGE_KEY = "drift:plan:v1";
 const EVENT_STATE_KEY = "drift:event-states:v1";
+const TASK_SKIP_KEY = "drift:task-skips:v1";
 
 type EventStateMap = Record<string, "done" | "skipped">;
 type StoredEventStates = { date: string; states: EventStateMap };
+
+type TaskSkipMap = Record<string, true>;
+type StoredTaskSkips = { date: string; skips: TaskSkipMap };
 
 async function loadEventStates(): Promise<StoredEventStates | null> {
   try {
@@ -31,6 +35,25 @@ async function persistEventStates(v: StoredEventStates | null): Promise<void> {
     else await AsyncStorage.removeItem(EVENT_STATE_KEY);
   } catch (e) {
     console.log("[plan] event states persist error:", e);
+  }
+}
+
+async function loadTaskSkips(): Promise<StoredTaskSkips | null> {
+  try {
+    const raw = await AsyncStorage.getItem(TASK_SKIP_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as StoredTaskSkips;
+  } catch {
+    return null;
+  }
+}
+
+async function persistTaskSkips(v: StoredTaskSkips | null): Promise<void> {
+  try {
+    if (v) await AsyncStorage.setItem(TASK_SKIP_KEY, JSON.stringify(v));
+    else await AsyncStorage.removeItem(TASK_SKIP_KEY);
+  } catch (e) {
+    console.log("[plan] task skips persist error:", e);
   }
 }
 
@@ -66,6 +89,7 @@ export const [PlanProvider, usePlan] = createContextHook(() => {
   const [hydrated, setHydrated] = useState<boolean>(false);
   const [autoTried, setAutoTried] = useState<boolean>(false);
   const [eventStates, setEventStates] = useState<EventStateMap>({});
+  const [taskSkips, setTaskSkips] = useState<TaskSkipMap>({});
 
   const query = useQuery<DayPlan | null>({
     queryKey: ["plan"],
@@ -88,6 +112,13 @@ export const [PlanProvider, usePlan] = createContextHook(() => {
         persistEventStates(null);
       }
     });
+    loadTaskSkips().then((stored) => {
+      if (stored && stored.date === todayISO()) {
+        setTaskSkips(stored.skips);
+      } else if (stored) {
+        persistTaskSkips(null);
+      }
+    });
   }, []);
 
   const setEventState = useCallback(
@@ -102,6 +133,16 @@ export const [PlanProvider, usePlan] = createContextHook(() => {
     },
     []
   );
+
+  const setTaskSkip = useCallback((taskId: string, skipped: boolean) => {
+    setTaskSkips((prev) => {
+      const next = { ...prev };
+      if (skipped) next[taskId] = true;
+      else delete next[taskId];
+      persistTaskSkips({ date: todayISO(), skips: next });
+      return next;
+    });
+  }, []);
 
   const generateMutation = useMutation({
     mutationFn: async (opts: { reroute?: boolean } = {}) => {
@@ -197,7 +238,9 @@ export const [PlanProvider, usePlan] = createContextHook(() => {
       error: generateMutation.error as Error | null,
       eventStates,
       setEventState,
+      taskSkips,
+      setTaskSkip,
     }),
-    [todayPlan, hydrated, generateMutation, clearPlan, eventStates, setEventState]
+    [todayPlan, hydrated, generateMutation, clearPlan, eventStates, setEventState, taskSkips, setTaskSkip]
   );
 });
