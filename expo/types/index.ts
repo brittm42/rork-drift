@@ -5,6 +5,7 @@ export type TaskType =
   | "energy_matched"
   | "reactive"
   | "aspirational"
+  | "project"
   | "unclassified";
 
 export type EnergyLevel = "deep" | "light" | null;
@@ -62,6 +63,10 @@ export const TASK_TYPE_META: Record<
     label: "Aspirational",
     blurb: "What you want to make room for, even when life gets busy.",
   },
+  project: {
+    label: "Projects",
+    blurb: "Bigger undertakings that need a plan and multiple tasks to finish.",
+  },
 };
 
 export const TASK_TYPE_ORDER: Exclude<TaskType, "unclassified">[] = [
@@ -71,6 +76,7 @@ export const TASK_TYPE_ORDER: Exclude<TaskType, "unclassified">[] = [
   "energy_matched",
   "reactive",
   "aspirational",
+  "project",
 ];
 
 export type PlanItem = {

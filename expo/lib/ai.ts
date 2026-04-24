@@ -24,6 +24,7 @@ const taskParseSchema = z.object({
       "energy_matched",
       "reactive",
       "aspirational",
+      "project",
       "unclassified",
     ])
     .default("unclassified"),
@@ -119,6 +120,7 @@ Classify task_type as ONE of:
 - energy_matched: requires specific cognitive state (deep focus writing, hard conversation) or is fine while depleted (admin, scheduling).
 - reactive: follow-up spawned by another task/event (schedule 6mo dentist after dentist).
 - aspirational: wants-to-do, not committed (gym, reading, creative).
+- project: a bigger undertaking that requires a planning session and multiple downstream tasks to finish (backyard overhaul, cleaning out the basement, redoing the portfolio site). Different from aspirational — projects are work that needs decomposition, not just protected time. If the user's input sounds project-sized, use this and set clarifying_question to something like "Want to plan this out together?" so we can break it into steps.
 - unclassified: truly ambiguous — use this if you aren't confident.
 
 energy_level: "deep" if cognitively heavy, "light" if fine while tired, null otherwise.
@@ -427,6 +429,7 @@ const chatActionSchema = z.discriminatedUnion("kind", [
         "energy_matched",
         "reactive",
         "aspirational",
+        "project",
         "unclassified",
       ])
       .default("unclassified"),
@@ -446,6 +449,7 @@ const chatActionSchema = z.discriminatedUnion("kind", [
         "energy_matched",
         "reactive",
         "aspirational",
+        "project",
       ])
       .nullable(),
     energy_level: z.enum(["deep", "light"]).nullable(),
@@ -579,7 +583,7 @@ Your job is to produce:
 2) An "actions" array — structured things to do. One message can trigger multiple actions (e.g. answer + save_memory). Keep action count small.
 
 Action rules:
-- add_task: for any task capture ("remind me tomorrow to grab sunscreen" → scheduled_for: "tomorrow"). ALSO classify task_type and fill the other fields (energy_level, is_self_care, cadence) using the same definitions as the task parser: fixed_anchor | committed_block | floatable | energy_matched | reactive | aspirational | unclassified. If you're not sure, use unclassified and append ONE short follow-up question to the end of your message instead of inventing a classification. "confirmation" is a short chip label like "Added to tomorrow morning".
+- add_task: for any task capture ("remind me tomorrow to grab sunscreen" → scheduled_for: "tomorrow"). ALSO classify task_type and fill the other fields (energy_level, is_self_care, cadence) using the same definitions as the task parser: fixed_anchor | committed_block | floatable | energy_matched | reactive | aspirational | project | unclassified. If you're not sure, use unclassified and append ONE short follow-up question to the end of your message instead of inventing a classification. "confirmation" is a short chip label like "Added to tomorrow morning".
 - update_task: use when the user answers a classification follow-up about a recently added task. task_title_match should be a distinctive substring of that task's title so the app can find it. Only set the fields the user actually clarified; leave the rest null.
 - save_memory: for durable facts about the person's life ("I got a dog that needs grooming every 4 weeks", "my home is in Austin"). DO NOT save one-off tasks as memories. "confirmation" chip like "Saved: dog grooming every 4 weeks".
 - add_anchor: ONLY for fixed-day-and-time commitments ("school pickup 3:30 M-F"). Not for vague "I try to work out mornings".

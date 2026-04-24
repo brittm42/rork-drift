@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Clock,
   Flower2,
+  FolderKanban,
   HelpCircle,
   Layers,
   Plus,
@@ -93,6 +94,13 @@ const SECTIONS: SectionDef[] = [
     icon: Sprout,
     accent: Colors.sageDeep,
   },
+  {
+    key: "project",
+    label: TASK_TYPE_META.project.label,
+    blurb: TASK_TYPE_META.project.blurb,
+    icon: FolderKanban,
+    accent: Colors.sageDark,
+  },
 ];
 
 export default function DrawerScreen() {
@@ -113,6 +121,7 @@ export default function DrawerScreen() {
       energy_matched: [],
       reactive: [],
       aspirational: [],
+      project: [],
       done: [],
     };
     for (const t of tasks) {

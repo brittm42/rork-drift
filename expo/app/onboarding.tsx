@@ -58,6 +58,7 @@ type Phase =
   | "calendar"
   | "calendar-pick"
   | "calendar-write"
+  | "calendar-write-pick"
   | "first-task"
   | "done";
 
@@ -111,6 +112,7 @@ export default function OnboardingScreen() {
   const [selectedTime, setSelectedTime] = useState<string>(settings.notification_time ?? "07:00");
   const [cals, setCals] = useState<CalendarT[]>([]);
   const [selectedCalIds, setSelectedCalIds] = useState<string[]>([]);
+  const [writeCalId, setWriteCalId] = useState<string | null>(null);
   const [firstTask, setFirstTask] = useState<string>("");
   const [busy, setBusy] = useState<boolean>(false);
 
@@ -347,19 +349,32 @@ export default function OnboardingScreen() {
 
   const handleCalWriteYes = useCallback(async () => {
     setBusy(true);
-    const writableId = await findWritableCalendarId(null);
-    update({
-      calendar_write_enabled: true,
-      default_write_calendar_id: writableId,
-    });
+    const writable = (cals.length > 0 ? cals : await listCalendars()).filter(
+      (c) => c.allowsModifications
+    );
+    if (cals.length === 0) setCals(await listCalendars());
+    const fallbackId = await findWritableCalendarId(null);
+    const initial =
+      writable.find((c) => c.id === fallbackId)?.id ?? writable[0]?.id ?? null;
+    setWriteCalId(initial);
+    update({ calendar_write_enabled: true });
     setBusy(false);
+    if (writable.length === 0) {
+      goto("first-task");
+    } else {
+      goto("calendar-write-pick");
+    }
+  }, [cals, update, goto]);
+
+  const handleCalWriteSkip = useCallback(() => {
+    update({ calendar_write_enabled: false, default_write_calendar_id: null });
     goto("first-task");
   }, [update, goto]);
 
-  const handleCalWriteSkip = useCallback(() => {
-    update({ calendar_write_enabled: false });
+  const handleWriteCalPick = useCallback(() => {
+    update({ default_write_calendar_id: writeCalId });
     goto("first-task");
-  }, [update, goto]);
+  }, [update, writeCalId, goto]);
 
   const handleFinish = useCallback(async () => {
     if (!firstTask.trim() || busy) return;
@@ -488,6 +503,15 @@ export default function OnboardingScreen() {
               busy={busy}
               onPrimary={handleCalWriteYes}
               onSecondary={handleCalWriteSkip}
+            />
+          )}
+
+          {phase === "calendar-write-pick" && (
+            <WriteCalendarPickStep
+              cals={cals.filter((c) => c.allowsModifications)}
+              selectedId={writeCalId}
+              onSelect={setWriteCalId}
+              onNext={handleWriteCalPick}
             />
           )}
 
@@ -880,6 +904,58 @@ function CalendarPickStep({
         )}
       </View>
       <PrimaryBtn label="Continue" onPress={onNext} />
+    </ScrollView>
+  );
+}
+
+function WriteCalendarPickStep({
+  cals,
+  selectedId,
+  onSelect,
+  onNext,
+}: {
+  cals: CalendarT[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  onNext: () => void;
+}) {
+  return (
+    <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <View style={styles.iconCircle}>
+        <CalendarPlus size={22} color={Colors.sageDeep} strokeWidth={1.5} />
+      </View>
+      <Text style={styles.h1}>Which calendar should I write to?</Text>
+      <Text style={styles.p}>
+        When I add a gym block or an appointment, it&apos;ll land here. You can change this later.
+      </Text>
+      <View style={styles.calList}>
+        {cals.map((c) => {
+          const on = selectedId === c.id;
+          return (
+            <Pressable
+              key={c.id}
+              onPress={() => {
+                if (Platform.OS !== "web") Haptics.selectionAsync();
+                onSelect(c.id);
+              }}
+              style={styles.calRow}
+            >
+              <View style={[styles.calDot, { backgroundColor: c.color ?? Colors.sage }]} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.calName}>{c.title}</Text>
+                {c.source?.name && <Text style={styles.calSource}>{c.source.name}</Text>}
+              </View>
+              <View style={[styles.calCheck, on && styles.calCheckOn]}>
+                {on && <Check size={12} color={Colors.paper} strokeWidth={3} />}
+              </View>
+            </Pressable>
+          );
+        })}
+        {cals.length === 0 && (
+          <Text style={styles.mutedNote}>No writable calendars found on this device.</Text>
+        )}
+      </View>
+      <PrimaryBtn label="Continue" onPress={onNext} disabled={!selectedId} />
     </ScrollView>
   );
 }
