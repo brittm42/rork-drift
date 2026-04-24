@@ -1,17 +1,14 @@
-import { createGateway, generateObject } from "ai";
+import { generateObject } from "ai";
+import { createAnthropic } from "@ai-sdk/anthropic";
 import { z } from "zod";
 import type { CalendarEventSnapshot, ChatAction, Task, UserProfile } from "@/types";
 
-const TOOLKIT_URL = process.env.EXPO_PUBLIC_TOOLKIT_URL;
-const SECRET_KEY = process.env.EXPO_PUBLIC_RORK_TOOLKIT_SECRET_KEY;
-
-const gateway = createGateway({
-  baseURL: `${TOOLKIT_URL}/v2/vercel/v3/ai`,
-  apiKey: SECRET_KEY,
+const anthropic = createAnthropic({
+  apiKey: process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY,
 });
 
-const SONNET = "anthropic/claude-sonnet-4";
-const HAIKU = "anthropic/claude-haiku-4.5";
+const SONNET = anthropic("claude-sonnet-4-5");
+const HAIKU = anthropic("claude-haiku-4-5-20251001");
 
 const taskParseSchema = z.object({
   title: z.string(),
@@ -107,7 +104,7 @@ export async function parseTaskInput(raw: string, profile?: UserProfile): Promis
   try {
     console.log("[ai] parseTaskInput:", raw);
     const { object } = await generateObject({
-      model: gateway(HAIKU),
+      model: HAIKU,
       schema: taskParseSchema,
       prompt: `Clean up this task and classify it for a personal planning system. Fix typos, normalize capitalization, make it a clear action item. Keep it concise and preserve intent exactly — do not add scope.
 
@@ -223,7 +220,7 @@ Reason forward only — acknowledge what's left, never dwell on what didn't happ
   );
 
   const { object } = await generateObject({
-    model: gateway(SONNET),
+    model: SONNET,
     schema: planSchema,
     prompt: baseInstructions + rerouteInstructions,
   });
@@ -246,7 +243,7 @@ export async function generateMorningNotification(params: {
 }): Promise<{ title: string; body: string }> {
   try {
     const { object } = await generateObject({
-      model: gateway(HAIKU),
+      model: HAIKU,
       schema: notifSchema,
       prompt: `Write a calm, confident morning notification for Drift.
 Plan header: ${JSON.stringify(params.planHeader)}
@@ -341,7 +338,7 @@ export async function extractOnboardingFacts(params: {
   };
   try {
     const { object } = await generateObject({
-      model: gateway(HAIKU),
+      model: HAIKU,
       schema: onboardingExtractSchema,
       prompt: `You are extracting structured facts from a short reply during an onboarding chat for a personal planning app. Only return facts the user actually stated. If the reply is skip/none/unsure, return empty arrays and nulls. Never invent details. Use null (not empty string) when unknown.
 
@@ -379,7 +376,7 @@ export type OnboardingSummary = z.infer<typeof summarySchema>;
 export async function summarizeOnboarding(profile: UserProfile): Promise<OnboardingSummary> {
   try {
     const { object } = await generateObject({
-      model: gateway(HAIKU),
+      model: HAIKU,
       schema: summarySchema,
       prompt: `Write a short, warm reflection for a personal planning app. You are confirming what you learned about the user during onboarding, so they feel understood. Tone: calm, confident, slightly warm. Never chipper, never clinical. Use "you" / "your".
 
@@ -560,7 +557,7 @@ export async function chatTurn(params: {
 
   try {
     const { object } = await generateObject({
-      model: gateway(SONNET),
+      model: SONNET,
       schema: chatResponseSchema,
       prompt: `You are Drift — a calm, warm, slightly personal chief-of-staff for ${profile.name ?? "the user"}. You already know them; act like it. Use their name occasionally. Never chipper, never clinical. Reply in 1–2 short sentences unless a question genuinely needs more.
 

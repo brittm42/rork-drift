@@ -57,12 +57,11 @@ Five providers wrap the app in `_layout.tsx` (outer → inner): `SettingsProvide
 
 ### AI integration
 
-`lib/ai.ts` calls Claude (Sonnet 4 / Haiku 4.5) through the Rork Toolkit proxy using the Vercel AI SDK (`ai` package + `createGateway`). The gateway base URL and secret key come from env vars:
+`lib/ai.ts` calls Claude directly via `@ai-sdk/anthropic` (`createAnthropic`). Uses Sonnet 4.5 for planning and chat, Haiku 4.5 for task parsing and onboarding. The API key comes from:
 
-- `EXPO_PUBLIC_TOOLKIT_URL` — Rork Toolkit backend
-- `EXPO_PUBLIC_RORK_TOOLKIT_SECRET_KEY` — auth key
+- `EXPO_PUBLIC_ANTHROPIC_API_KEY` — Anthropic API key from console.anthropic.com
 
-Copy `.env.example` → `.env` and fill in values before running locally.
+Copy `.env.example` → `.env.local` and fill in the key before running locally. For EAS builds, store it as an EAS Secret: `eas secret:create --scope project --name EXPO_PUBLIC_ANTHROPIC_API_KEY --value sk-ant-...`
 
 ### EAS / App Store config
 

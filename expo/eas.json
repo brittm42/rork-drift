@@ -9,9 +9,6 @@
       "distribution": "internal",
       "ios": {
         "simulator": false
-      },
-      "env": {
-        "EXPO_PUBLIC_TOOLKIT_URL": "https://toolkit.rork.com"
       }
     },
     "preview": {
