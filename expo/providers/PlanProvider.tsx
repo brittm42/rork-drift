@@ -13,7 +13,8 @@ const STORAGE_KEY = "drift:plan:v1";
 const EVENT_STATE_KEY = "drift:event-states:v1";
 const TASK_SKIP_KEY = "drift:task-skips:v1";
 
-type EventStateMap = Record<string, "done" | "skipped">;
+export type EventState = "done" | "skipped" | "missed" | "moved";
+type EventStateMap = Record<string, EventState>;
 type StoredEventStates = { date: string; states: EventStateMap };
 
 type TaskSkipMap = Record<string, true>;
@@ -122,7 +123,7 @@ export const [PlanProvider, usePlan] = createContextHook(() => {
   }, []);
 
   const setEventState = useCallback(
-    (eventId: string, state: "done" | "skipped" | null) => {
+    (eventId: string, state: EventState | null) => {
       setEventStates((prev) => {
         const next = { ...prev };
         if (state === null) delete next[eventId];
@@ -227,6 +228,18 @@ export const [PlanProvider, usePlan] = createContextHook(() => {
     persist(null);
   }, []);
 
+  const removeFromPlan = useCallback((taskId: string) => {
+    setPlan((prev) => {
+      if (!prev) return prev;
+      const next: DayPlan = {
+        ...prev,
+        plan_items: prev.plan_items.filter((i) => i.task_id !== taskId),
+      };
+      persist(next);
+      return next;
+    });
+  }, []);
+
   return useMemo(
     () => ({
       plan: todayPlan,
@@ -235,12 +248,13 @@ export const [PlanProvider, usePlan] = createContextHook(() => {
       generate: () => generateMutation.mutateAsync({}),
       reroute: () => generateMutation.mutateAsync({ reroute: true }),
       clearPlan,
+      removeFromPlan,
       error: generateMutation.error as Error | null,
       eventStates,
       setEventState,
       taskSkips,
       setTaskSkip,
     }),
-    [todayPlan, hydrated, generateMutation, clearPlan, eventStates, setEventState, taskSkips, setTaskSkip]
+    [todayPlan, hydrated, generateMutation, clearPlan, removeFromPlan, eventStates, setEventState, taskSkips, setTaskSkip]
   );
 });

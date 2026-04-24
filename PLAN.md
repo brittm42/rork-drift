@@ -19,17 +19,28 @@
 ## Today screen
 
 - [x] Calendar events are now checkable.
-  - Tap = mark complete (strikethrough + check); the chat dock posts a follow-up prompt asking whether anything came out of the event.
-  - Long-press = mark skipped (dashed bar + "skipped" tag, no prompt).
-  - Tap again un-sets the state.
+  - Tap = mark complete (check only, no strikethrough); chat posts a simple "Nice." follow-up.
+  - Long-press = opens a 3-option action sheet: Missed / Skipped / Moved.
+    - Missed → state set + chat asks about rescheduling.
+    - Skipped → state set, no follow-up.
+    - Moved → state set + calendar searched for a future event with the same title; chat acknowledges the move or falls back to the missed/reschedule prompt.
+  - Long-press on an item already in a non-default state clears it (undo after a misclick).
   - Event states persist for today only (cleared on date rollover).
+- [x] Plan tasks on Today mirror the same interaction model.
+  - Tap = complete (check only, no strikethrough) + quick "Nice." follow-up.
+  - Long-press = 4-option action sheet: Not today / Pick a different time today / Missed / No longer relevant.
+    - Not today → removes from today's plan (back to drawer); protected tasks get a self-care-aware follow-up in chat.
+    - Pick a different time today → chat follow-up for timing.
+    - Missed → skipped state + chat offers to squeeze it in later.
+    - No longer relevant → deletes the task.
+  - Long-press on a skipped task clears it (undo).
 - [x] Anchors remain read-only (no checkbox).
 
 ## Deferred
 
-- [ ] Post-completion follow-up for plan tasks (currently only events trigger the follow-up prompt).
+- [x] Post-completion follow-up for plan tasks (simple "Nice." acknowledgement).
 - [ ] Long-press on drawer rows to edit classification inline.
-- [ ] Protected aspirational enforcement (planner respects `is_protected` → gentle pushback when skipped).
+- [ ] Protected aspirational enforcement — v1 pushes back in chat when a protected task is moved out of today; still TODO: auto-buffer tomorrow, detect repeated skip patterns, and open a larger conversation.
 - [ ] Reactive-task inference from calendar event titles (e.g. dentist → "schedule 6mo follow-up").
 - [ ] Self-care quota ("at least one most days") surfaced in the planner prompt and nudged if missing.
 - [ ] Drive-time / "leave by" math.

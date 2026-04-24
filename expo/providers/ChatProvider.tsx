@@ -336,12 +336,43 @@ export const [ChatProvider, useChat] = createContextHook(() => {
     save(() => []);
   }, [save]);
 
+  type FollowUp =
+    | { kind: "complete" }
+    | { kind: "event_missed"; title: string }
+    | { kind: "event_moved_found"; title: string; when: string }
+    | { kind: "event_moved_unknown"; title: string }
+    | { kind: "task_missed"; title: string }
+    | { kind: "task_pick_time"; title: string }
+    | { kind: "task_not_today_protected"; title: string };
+
   const promptFollowUp = useCallback(
-    (input: { kind: "event_complete"; title: string }) => {
-      const text =
-        input.kind === "event_complete"
-          ? `That's “${input.title}” handled. Anything that came out of it I should capture — a follow-up, a reminder, a note?`
-          : "Anything you want me to capture?";
+    (input: FollowUp) => {
+      let text: string;
+      switch (input.kind) {
+        case "complete":
+          text = "Nice.";
+          break;
+        case "event_missed":
+          text = `Missed “${input.title}.” Want a reminder to reschedule it?`;
+          break;
+        case "event_moved_found":
+          text = `Looks like “${input.title}” is already on your calendar for ${input.when}. Anything I should capture from the move?`;
+          break;
+        case "event_moved_unknown":
+          text = `Didn't find “${input.title}” anywhere else on your calendar. Want a reminder to reschedule it?`;
+          break;
+        case "task_missed":
+          text = `Missed “${input.title}.” Want to try to squeeze it in later today?`;
+          break;
+        case "task_pick_time":
+          text = `When today would you like to do “${input.title}”?`;
+          break;
+        case "task_not_today_protected":
+          text = `“${input.title}” is one you set as protected. Moving it out of today — want me to block a small bit of space for you instead, or add more buffer tomorrow so this doesn't slip again?`;
+          break;
+        default:
+          text = "Anything you want me to capture?";
+      }
       save((prev) => [
         ...prev,
         {

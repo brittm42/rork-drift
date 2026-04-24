@@ -122,3 +122,34 @@ export async function getTodayEvents(calendarIds: string[]): Promise<CalendarEve
 export function getRemainingEvents(events: CalendarEventSnapshot[], now: Date): CalendarEventSnapshot[] {
   return events.filter((e) => new Date(e.end_time).getTime() > now.getTime());
 }
+
+export async function findFutureEventByTitle(params: {
+  calendarIds: string[];
+  title: string;
+  excludeEventId?: string;
+  daysAhead?: number;
+}): Promise<CalendarEventSnapshot | null> {
+  if (Platform.OS === "web") return null;
+  if (params.calendarIds.length === 0) return null;
+  try {
+    const now = new Date();
+    const start = new Date(now.getTime() + 60 * 1000);
+    const end = new Date(now.getTime() + (params.daysAhead ?? 30) * 24 * 60 * 60 * 1000);
+    const events = await Calendar.getEventsAsync(params.calendarIds, start, end);
+    const needle = params.title.trim().toLowerCase();
+    const match = events
+      .filter((e) => e.id !== params.excludeEventId)
+      .map((e) => ({
+        id: e.id,
+        title: e.title ?? "(untitled)",
+        start_time: new Date(e.startDate as string).toISOString(),
+        end_time: new Date(e.endDate as string).toISOString(),
+        all_day: !!e.allDay,
+      }))
+      .find((e) => e.title.trim().toLowerCase() === needle);
+    return match ?? null;
+  } catch (e) {
+    console.log("[calendar] find future event error:", e);
+    return null;
+  }
+}

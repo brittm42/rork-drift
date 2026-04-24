@@ -4,7 +4,7 @@ import {
   Calendar as CalendarIcon,
   Check,
 } from "lucide-react-native";
-import React, { useCallback, useMemo, useRef } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   Platform,
   Pressable,
@@ -17,6 +17,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "@/constants/colors";
 import { usePlan } from "@/providers/PlanProvider";
+import type { EventState } from "@/providers/PlanProvider";
 import { useChat } from "@/providers/ChatProvider";
 import { useProfile } from "@/providers/ProfileProvider";
 import { useSettings } from "@/providers/SettingsProvider";
@@ -28,8 +29,10 @@ import type {
   Task,
   Weekday,
 } from "@/types";
+import { ActionSheet } from "@/components/ActionSheet";
 import { CapabilityCard } from "@/components/CapabilityCard";
 import { ChatDock } from "@/components/ChatDock";
+import { findFutureEventByTitle } from "@/lib/calendar";
 import { formatDate, formatHHMM, minutesOfDay } from "@/lib/time";
 
 function greeting(): string {
@@ -163,11 +166,18 @@ export default function TodayScreen() {
     setEventState,
     taskSkips,
     setTaskSkip,
+    removeFromPlan,
   } = usePlan();
-  const { completedToday, byId, completeTask, uncompleteTask } = useTasks();
+  const { completedToday, byId, completeTask, uncompleteTask, deleteTask } =
+    useTasks();
   const { settings } = useSettings();
   const { profile } = useProfile();
   const { promptFollowUp } = useChat();
+
+  const [eventSheet, setEventSheet] = useState<CalendarEventSnapshot | null>(
+    null
+  );
+  const [taskSheet, setTaskSheet] = useState<Task | null>(null);
 
   const planTasks = useMemo(() => {
     if (!plan) return [] as { item: PlanItem; task: Task }[];
@@ -225,16 +235,21 @@ export default function TodayScreen() {
       } else {
         if (taskSkips[taskId]) setTaskSkip(taskId, false);
         completeTask(taskId);
+        promptFollowUp({ kind: "complete" });
       }
     },
-    [completeTask, uncompleteTask, taskSkips, setTaskSkip]
+    [completeTask, uncompleteTask, taskSkips, setTaskSkip, promptFollowUp]
   );
 
-  const handleTaskSkip = useCallback(
-    (taskId: string) => {
-      if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      const current = taskSkips[taskId] === true;
-      setTaskSkip(taskId, !current);
+  const handleTaskLongPress = useCallback(
+    (task: Task) => {
+      if (Platform.OS !== "web")
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      if (taskSkips[task.id]) {
+        setTaskSkip(task.id, false);
+        return;
+      }
+      setTaskSheet(task);
     },
     [taskSkips, setTaskSkip]
   );
@@ -248,21 +263,122 @@ export default function TodayScreen() {
       }
       if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       setEventState(event.id, "done");
-      promptFollowUp({
-        kind: "event_complete",
-        title: event.title,
-      });
+      promptFollowUp({ kind: "complete" });
     },
     [eventStates, setEventState, promptFollowUp]
   );
 
-  const handleEventSkip = useCallback(
+  const handleEventLongPress = useCallback(
     (event: CalendarEventSnapshot) => {
-      if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      if (Platform.OS !== "web")
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       const current = eventStates[event.id];
-      setEventState(event.id, current === "skipped" ? null : "skipped");
+      if (current) {
+        setEventState(event.id, null);
+        return;
+      }
+      setEventSheet(event);
     },
     [eventStates, setEventState]
+  );
+
+  const handleEventSheetSelect = useCallback(
+    async (optId: string) => {
+      const event = eventSheet;
+      setEventSheet(null);
+      if (!event) return;
+      if (Platform.OS !== "web")
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      if (optId === "skipped") {
+        setEventState(event.id, "skipped");
+        return;
+      }
+      if (optId === "missed") {
+        setEventState(event.id, "missed");
+        promptFollowUp({ kind: "event_missed", title: event.title });
+        return;
+      }
+      if (optId === "moved") {
+        setEventState(event.id, "moved");
+        try {
+          const match = settings.calendar_enabled
+            ? await findFutureEventByTitle({
+                calendarIds: settings.selected_calendar_ids,
+                title: event.title,
+                excludeEventId: event.id,
+              })
+            : null;
+          if (match) {
+            const d = new Date(match.start_time);
+            const when = match.all_day
+              ? d.toLocaleDateString(undefined, {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                })
+              : `${d.toLocaleDateString(undefined, {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                })} at ${formatDate(d, settings.time_format)}`;
+            promptFollowUp({
+              kind: "event_moved_found",
+              title: event.title,
+              when,
+            });
+          } else {
+            promptFollowUp({
+              kind: "event_moved_unknown",
+              title: event.title,
+            });
+          }
+        } catch (e) {
+          console.log("[today] moved lookup error:", e);
+          promptFollowUp({ kind: "event_moved_unknown", title: event.title });
+        }
+      }
+    },
+    [
+      eventSheet,
+      setEventState,
+      promptFollowUp,
+      settings.calendar_enabled,
+      settings.selected_calendar_ids,
+      settings.time_format,
+    ]
+  );
+
+  const handleTaskSheetSelect = useCallback(
+    (optId: string) => {
+      const task = taskSheet;
+      setTaskSheet(null);
+      if (!task) return;
+      if (Platform.OS !== "web")
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      if (optId === "not_today") {
+        removeFromPlan(task.id);
+        if (task.is_protected) {
+          promptFollowUp({
+            kind: "task_not_today_protected",
+            title: task.title,
+          });
+        }
+        return;
+      }
+      if (optId === "pick_time") {
+        promptFollowUp({ kind: "task_pick_time", title: task.title });
+        return;
+      }
+      if (optId === "missed") {
+        setTaskSkip(task.id, true);
+        promptFollowUp({ kind: "task_missed", title: task.title });
+        return;
+      }
+      if (optId === "irrelevant") {
+        deleteTask(task.id);
+      }
+    },
+    [taskSheet, removeFromPlan, setTaskSkip, deleteTask, promptFollowUp]
   );
 
   const hasPlanContext = !!plan || profile.anchors.length > 0;
@@ -321,8 +437,8 @@ export default function TodayScreen() {
                       b.kind === "task" ? taskSkips[b.task.id] === true : false
                     }
                     onEventCheck={handleEventCheck}
-                    onEventSkip={handleEventSkip}
-                    onTaskSkip={handleTaskSkip}
+                    onEventLongPress={handleEventLongPress}
+                    onTaskLongPress={handleTaskLongPress}
                   />
                 ))}
                 {timedItems.map((b) => (
@@ -337,8 +453,8 @@ export default function TodayScreen() {
                       b.kind === "task" ? taskSkips[b.task.id] === true : false
                     }
                     onEventCheck={handleEventCheck}
-                    onEventSkip={handleEventSkip}
-                    onTaskSkip={handleTaskSkip}
+                    onEventLongPress={handleEventLongPress}
+                    onTaskLongPress={handleTaskLongPress}
                   />
                 ))}
               </View>
@@ -368,6 +484,62 @@ export default function TodayScreen() {
       </ScrollView>
 
       <ChatDock planHeader={plan?.header_note ?? null} />
+
+      <ActionSheet
+        visible={!!eventSheet}
+        title={eventSheet?.title}
+        subtitle="What happened with this one?"
+        options={[
+          {
+            id: "missed",
+            label: "Missed",
+            sublabel: "Didn't happen — I'll ask about rescheduling.",
+          },
+          {
+            id: "skipped",
+            label: "Skipped on purpose",
+            sublabel: "Chose not to do it. No follow-up.",
+          },
+          {
+            id: "moved",
+            label: "Moved",
+            sublabel: "Rescheduled — I'll check your calendar.",
+          },
+        ]}
+        onSelect={handleEventSheetSelect}
+        onClose={() => setEventSheet(null)}
+      />
+
+      <ActionSheet
+        visible={!!taskSheet}
+        title={taskSheet?.title}
+        subtitle="What do you want to do with this?"
+        options={[
+          {
+            id: "not_today",
+            label: "Not today, please",
+            sublabel: "Back in the drawer.",
+          },
+          {
+            id: "pick_time",
+            label: "Pick a different time today",
+            sublabel: "I'll ask in chat.",
+          },
+          {
+            id: "missed",
+            label: "Missed it",
+            sublabel: "Try to squeeze it in later?",
+          },
+          {
+            id: "irrelevant",
+            label: "No longer relevant",
+            sublabel: "Remove it.",
+            destructive: true,
+          },
+        ]}
+        onSelect={handleTaskSheetSelect}
+        onClose={() => setTaskSheet(null)}
+      />
     </View>
   );
 }
@@ -378,26 +550,25 @@ function TimelineRow({
   eventState,
   taskSkipped,
   onEventCheck,
-  onEventSkip,
-  onTaskSkip,
+  onEventLongPress,
+  onTaskLongPress,
 }: {
   item: TimelineItem;
   onToggle: (taskId: string, isComplete: boolean) => void;
-  eventState: "done" | "skipped" | null;
+  eventState: EventState | null;
   taskSkipped: boolean;
   onEventCheck: (e: CalendarEventSnapshot) => void;
-  onEventSkip: (e: CalendarEventSnapshot) => void;
-  onTaskSkip: (taskId: string) => void;
+  onEventLongPress: (e: CalendarEventSnapshot) => void;
+  onTaskLongPress: (task: Task) => void;
 }) {
   if (item.kind === "task") {
     const task = item.task;
     return (
       <View style={styles.row}>
         <TaskCheckable
-          taskId={task.id}
-          isComplete={task.is_complete}
+          task={task}
           onToggle={onToggle}
-          onSkip={onTaskSkip}
+          onLongPress={onTaskLongPress}
         >
           <View
             style={[styles.checkBox, taskSkipped && styles.checkBoxSkipped]}
@@ -415,9 +586,9 @@ function TimelineRow({
             {task.urgency_flag && !taskSkipped && (
               <Text style={styles.urgentTag}>urgent</Text>
             )}
-            {taskSkipped && <Text style={styles.skipTag}>skipped</Text>}
+            {taskSkipped && <Text style={styles.skipTag}>missed</Text>}
           </View>
-          <Text style={[styles.rowTitle, taskSkipped && styles.rowTitleStruck]}>
+          <Text style={[styles.rowTitle, taskSkipped && styles.rowTitleFaded]}>
             {item.title}
           </Text>
           {item.item.rationale && !taskSkipped && (
@@ -434,24 +605,35 @@ function TimelineRow({
 
   if (item.kind === "event") {
     const isDone = eventState === "done";
-    const isSkipped = eventState === "skipped";
+    const isSideState =
+      eventState === "skipped" ||
+      eventState === "missed" ||
+      eventState === "moved";
+    const sideLabel =
+      eventState === "skipped"
+        ? "skipped"
+        : eventState === "missed"
+        ? "missed"
+        : eventState === "moved"
+        ? "moved"
+        : null;
     return (
       <View style={styles.row}>
         <EventCheckable
           event={item.event}
           onCheck={onEventCheck}
-          onSkip={onEventSkip}
+          onLongPress={onEventLongPress}
         >
           <View
             style={[
               styles.checkBox,
               isDone && styles.checkBoxDone,
-              isSkipped && styles.checkBoxSkipped,
+              isSideState && styles.checkBoxSkipped,
             ]}
           >
             {isDone ? (
               <Check size={12} color={Colors.paper} strokeWidth={3} />
-            ) : isSkipped ? (
+            ) : isSideState ? (
               <View style={styles.skipBar} />
             ) : (
               <Icon size={10} color={Colors.sageDeep} strokeWidth={2} />
@@ -462,12 +644,12 @@ function TimelineRow({
           <View style={styles.rowMeta}>
             <Text style={styles.rowTime}>{item.timeLabel}</Text>
             <Text style={styles.ghostTag}>{tagText}</Text>
-            {isSkipped && <Text style={styles.skipTag}>skipped</Text>}
+            {sideLabel && <Text style={styles.skipTag}>{sideLabel}</Text>}
           </View>
           <Text
             style={[
               styles.rowTitleMuted,
-              (isDone || isSkipped) && styles.rowTitleStruck,
+              isSideState && styles.rowTitleFaded,
             ]}
           >
             {item.title}
@@ -496,16 +678,14 @@ function TimelineRow({
 }
 
 function TaskCheckable({
-  taskId,
-  isComplete,
+  task,
   onToggle,
-  onSkip,
+  onLongPress,
   children,
 }: {
-  taskId: string;
-  isComplete: boolean;
+  task: Task;
   onToggle: (taskId: string, isComplete: boolean) => void;
-  onSkip: (taskId: string) => void;
+  onLongPress: (task: Task) => void;
   children: React.ReactNode;
 }) {
   const longFiredRef = useRef<boolean>(false);
@@ -516,21 +696,21 @@ function TaskCheckable({
       }}
       onPress={() => {
         if (longFiredRef.current) {
-          console.log("[today] task long-press suppressed tap", taskId);
+          console.log("[today] task long-press suppressed tap", task.id);
           return;
         }
-        console.log("[today] task tap", taskId);
-        onToggle(taskId, isComplete);
+        console.log("[today] task tap", task.id);
+        onToggle(task.id, task.is_complete);
       }}
       onLongPress={() => {
         longFiredRef.current = true;
-        console.log("[today] task long-press", taskId);
-        onSkip(taskId);
+        console.log("[today] task long-press", task.id);
+        onLongPress(task);
       }}
       delayLongPress={350}
       pressRetentionOffset={{ top: 16, bottom: 16, left: 16, right: 16 }}
       style={styles.rowCheckHit}
-      testID={`timeline-task-${taskId}`}
+      testID={`timeline-task-${task.id}`}
     >
       {children}
     </Pressable>
@@ -540,12 +720,12 @@ function TaskCheckable({
 function EventCheckable({
   event,
   onCheck,
-  onSkip,
+  onLongPress,
   children,
 }: {
   event: CalendarEventSnapshot;
   onCheck: (e: CalendarEventSnapshot) => void;
-  onSkip: (e: CalendarEventSnapshot) => void;
+  onLongPress: (e: CalendarEventSnapshot) => void;
   children: React.ReactNode;
 }) {
   const longFiredRef = useRef<boolean>(false);
@@ -565,7 +745,7 @@ function EventCheckable({
       onLongPress={() => {
         longFiredRef.current = true;
         console.log("[today] event long-press", event.id);
-        onSkip(event);
+        onLongPress(event);
       }}
       delayLongPress={350}
       pressRetentionOffset={{ top: 16, bottom: 16, left: 16, right: 16 }}
@@ -726,9 +906,8 @@ const styles = StyleSheet.create({
     letterSpacing: -0.1,
     lineHeight: 22,
   },
-  rowTitleStruck: {
+  rowTitleFaded: {
     color: Colors.inkMuted,
-    textDecorationLine: "line-through",
   },
   checkBoxSkipped: {
     backgroundColor: Colors.creamSoft,
@@ -784,7 +963,6 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     color: Colors.inkMuted,
-    textDecorationLine: "line-through",
   },
   empty: {
     paddingTop: 40,
