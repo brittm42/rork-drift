@@ -18,12 +18,10 @@
       "supportsTablet": false,
       "bundleIdentifier": "io.day.drift",
       "infoPlist": {
-        "NSCalendarsUsageDescription": "Drift uses your calendar to show and manage your daily events.",
-        "NSCalendarsFullAccessUsageDescription": "Drift uses your calendar to show and manage your daily events.",
-        "NSRemindersUsageDescription": "Drift uses Reminders to sync tasks.",
-        "NSLocationWhenInUseUsageDescription": "Drift uses your location to provide context-aware suggestions.",
-        "NSPhotoLibraryUsageDescription": "Drift uses your photo library to let you attach images to tasks.",
-        "NSCameraUsageDescription": "Drift uses the camera to let you capture and attach photos to tasks."
+        "NSLocationWhenInUseUsageDescription": "Drift uses your location to help you search for and save places.",
+        "NSCalendarsUsageDescription": "Drift reads your calendar to plan your day around your commitments.",
+        "NSRemindersUsageDescription": "Drift can add reminders to help you track tasks.",
+        "NSUserNotificationsUsageDescription": "Drift sends a morning plan notification so you know what's ahead."
       }
     },
     "android": {
