@@ -211,12 +211,26 @@ export default function DrawerScreen() {
             </View>
           )}
         </View>
+        <Pressable
+          onPress={() => {
+            if (Platform.OS !== "web") Haptics.selectionAsync();
+            router.push("/add-task");
+          }}
+          style={({ pressed }) => [
+            styles.addBtn,
+            pressed && { transform: [{ scale: 0.92 }], opacity: 0.85 },
+          ]}
+          testID="drawer-fab"
+          hitSlop={8}
+        >
+          <Plus size={20} color={Colors.paper} strokeWidth={2.5} />
+        </Pressable>
       </View>
 
       <FlatList
         data={sectionData}
         keyExtractor={(s) => s.key}
-        contentContainerStyle={{ paddingBottom: 160, paddingHorizontal: 20 }}
+        contentContainerStyle={{ paddingBottom: 120, paddingHorizontal: 20 }}
         ListEmptyComponent={
           hasAny ? null : (
             <View style={styles.empty}>
@@ -280,20 +294,6 @@ export default function DrawerScreen() {
         }}
       />
 
-      <Pressable
-        onPress={() => {
-          if (Platform.OS !== "web") Haptics.selectionAsync();
-          router.push("/add-task");
-        }}
-        style={({ pressed }) => [
-          styles.fab,
-          { bottom: insets.bottom + 92 },
-          pressed && { transform: [{ scale: 0.94 }] },
-        ]}
-        testID="drawer-fab"
-      >
-        <Plus size={22} color={Colors.paper} strokeWidth={2.25} />
-      </Pressable>
     </View>
   );
 }
@@ -543,19 +543,18 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     maxWidth: 300,
   },
-  fab: {
-    position: "absolute",
-    right: 22,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+  addBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: Colors.sageDeep,
     alignItems: "center",
     justifyContent: "center",
+    marginBottom: 4,
     shadowColor: Colors.forest,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 3,
   },
 });
