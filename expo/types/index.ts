@@ -14,21 +14,17 @@ export type Task = {
   id: string;
   raw_input: string;
   title: string;
-  urgency_flag: boolean;
   is_complete: boolean;
   completed_at: string | null;
   created_at: string;
   last_surfaced_at: string | null;
   snooze_until: string | null;
-  recurrence_rule: string | null;
   due_date: string | null;
-  scheduled_for: string | null;
   task_type: TaskType;
   energy_level: EnergyLevel;
   window_start: string | null;
   window_end: string | null;
   is_self_care: boolean;
-  is_protected: boolean;
   parent_task_id: string | null;
   cadence: string | null;
   needs_classification: boolean;
@@ -252,7 +248,8 @@ export type ChatAction =
   | {
       kind: "add_task";
       raw: string;
-      scheduled_for: "today" | "tomorrow" | "inbox";
+      due_date: string | null;
+      snooze_until: string | null;
       confirmation: string;
     }
   | {

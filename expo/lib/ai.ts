@@ -12,7 +12,8 @@ const HAIKU = anthropic("claude-haiku-4-5-20251001");
 
 const taskParseSchema = z.object({
   title: z.string(),
-  urgency_flag: z.boolean(),
+  due_date: z.string().nullable().default(null),
+  snooze_until: z.string().nullable().default(null),
   task_type: z
     .enum([
       "fixed_anchor",
@@ -100,7 +101,8 @@ function profileBrief(profile: UserProfile | null | undefined): string {
   return parts.length ? parts.join("\n") : "No profile yet.";
 }
 
-export async function parseTaskInput(raw: string, profile?: UserProfile): Promise<ParsedTask> {
+export async function parseTaskInput(raw: string, profile?: UserProfile, now?: Date): Promise<ParsedTask> {
+  const today = (now ?? new Date()).toISOString().slice(0, 10);
   try {
     console.log("[ai] parseTaskInput:", raw);
     const { object } = await generateObject({
@@ -108,15 +110,19 @@ export async function parseTaskInput(raw: string, profile?: UserProfile): Promis
       schema: taskParseSchema,
       prompt: `Clean up this task and classify it for a personal planning system. Fix typos, normalize capitalization, make it a clear action item. Keep it concise and preserve intent exactly — do not add scope.
 
-Extract urgency (true/false) — signals: "today", "urgent", "ASAP", "now", "by [date/time]", "immediately".
+Today's date: ${today}
+
+Extract due_date (YYYY-MM-DD or null) — the hard deadline by which this task must be done. Signals: "today", "urgent", "ASAP", "now", "immediately", "by [date]", "this week", "end of week". Resolve relative terms using today's date. Null if no deadline is stated.
+
+Extract snooze_until (YYYY-MM-DD or null) — when to start surfacing this task. Signals: "remind me tomorrow", "don't show until Monday", "check back next week". Null if no deferral is stated. Note: due_date = when it must be DONE; snooze_until = when to START showing it. Both can coexist.
 
 Classify task_type as ONE of:
-- fixed_anchor: non-negotiable, time-specific commitments (school pickup 3:30, therapy). Only if user clearly stated a fixed day + time.
-- committed_block: scheduled with someone else, could shift with coordination (dentist, coffee with friend).
-- floatable: needs to happen within a window (day/week) but not time-specific (order meds this week, follow up with recruiter).
+- fixed_anchor: non-negotiable, time-specific, recurring commitments (school pickup 3:30 M-F). Must have a clear fixed time and cadence.
+- committed_block: scheduled with a time in mind, user holds themselves to it, but could shift if needed (deep work block M/W/F, single booked appointment). Has some concreteness but user is sole accountable party.
+- floatable: needs to happen within a window but not at a specific time (order meds this week, follow up with recruiter). Slot into open time.
 - energy_matched: requires specific cognitive state (deep focus writing, hard conversation) or is fine while depleted (admin, scheduling).
 - reactive: follow-up spawned by another task/event (schedule 6mo dentist after dentist).
-- aspirational: wants-to-do, not committed (gym, reading, creative).
+- aspirational: wants-to-do, not committed (gym, reading, creative). No deadline, no fixed time.
 - project: a bigger undertaking that requires a planning session and multiple downstream tasks to finish (backyard overhaul, cleaning out the basement, redoing the portfolio site). Different from aspirational — projects are work that needs decomposition, not just protected time. If the user's input sounds project-sized, use this and set clarifying_question to something like "Want to plan this out together?" so we can break it into steps.
 - unclassified: truly ambiguous — use this if you aren't confident.
 
@@ -135,7 +141,8 @@ Input: ${JSON.stringify(raw)}`,
     console.log("[ai] parseTaskInput failed, falling back to raw:", e);
     return {
       title: raw.trim(),
-      urgency_flag: false,
+      due_date: null,
+      snooze_until: null,
       task_type: "unclassified" as const,
       energy_level: null,
       is_self_care: false,
@@ -176,9 +183,11 @@ type PlanInput = {
 
 export async function generateDailyPlan(input: PlanInput): Promise<GeneratedPlan> {
   const { tasks, events, now, reroute, profile } = input;
+  const todayStr = now.toISOString().slice(0, 10);
   const incompleteTasks = tasks
     .filter((t) => !t.is_complete)
-    .map((t) => ({ id: t.id, title: t.title, urgency_flag: t.urgency_flag }));
+    .filter((t) => !t.snooze_until || t.snooze_until <= todayStr)
+    .map((t) => ({ id: t.id, title: t.title, due_date: t.due_date, snooze_until: t.snooze_until }));
 
   const baseInstructions = `You are a calm, competent daily planner acting as this person's personal chief of staff. Your tone is quiet, confident, forward-looking, never shaming. You respect their life, not just their tasks.
 
@@ -192,6 +201,14 @@ Calendar events today:
 ${JSON.stringify(events, null, 2)}
 
 Current time: ${now.toISOString()}
+Today's date: ${todayStr}
+
+Prioritization rules — apply in order:
+1. snooze_until = today AND due_date = today → highest urgency (task was deferred to its deadline day). Prioritize above all else.
+2. due_date = today → top priority. Prioritize strongly; include if at all possible.
+3. due_date within 3 days → high priority. Include unless there is truly no time.
+4. due_date > 3 days → normal priority. Schedule where it fits best.
+5. due_date = null → surface based on task type. aspirational and project tasks only if there is genuine slack.
 
 Generate a prioritized plan for today:
 - Select 3 to 7 tasks (fewer if there are fewer tasks)
@@ -417,7 +434,8 @@ const chatActionSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("add_task"),
     raw: z.string(),
-    scheduled_for: z.enum(["today", "tomorrow", "inbox"]),
+    due_date: z.string().nullable().default(null),
+    snooze_until: z.string().nullable().default(null),
     task_type: z
       .enum([
         "fixed_anchor",
@@ -548,7 +566,7 @@ export async function chatTurn(params: {
   const incompleteTasks = tasks
     .filter((t) => !t.is_complete)
     .slice(0, 20)
-    .map((t) => ({ title: t.title, scheduled_for: t.scheduled_for ?? "inbox" }));
+    .map((t) => ({ title: t.title, due_date: t.due_date ?? null, snooze_until: t.snooze_until ?? null }));
 
   const transcript = recentTurns
     .slice(-10)
@@ -580,7 +598,7 @@ Your job is to produce:
 2) An "actions" array — structured things to do. One message can trigger multiple actions (e.g. answer + save_memory). Keep action count small.
 
 Action rules:
-- add_task: for any task capture ("remind me tomorrow to grab sunscreen" → scheduled_for: "tomorrow"). ALSO classify task_type and fill the other fields (energy_level, is_self_care, cadence) using the same definitions as the task parser: fixed_anchor | committed_block | floatable | energy_matched | reactive | aspirational | project | unclassified. If you're not sure, use unclassified and append ONE short follow-up question to the end of your message instead of inventing a classification. "confirmation" is a short chip label like "Added to tomorrow morning".
+- add_task: for any task capture. due_date is a YYYY-MM-DD hard deadline or null — resolve natural language using current time ("today" → ${now.toISOString().slice(0, 10)}, "tomorrow" → next day, "by Friday" → next Friday, etc.). snooze_until is a YYYY-MM-DD date to start surfacing the task, or null — use when user says "remind me Friday", "don't show until next week", etc. ALSO classify task_type and fill the other fields (energy_level, is_self_care, cadence) using the same definitions as the task parser: fixed_anchor | committed_block | floatable | energy_matched | reactive | aspirational | project | unclassified. If you're not sure, use unclassified and append ONE short follow-up question to the end of your message instead of inventing a classification. "confirmation" is a short chip label like "Added — due Friday".
 - update_task: use when the user answers a classification follow-up about a recently added task. task_title_match should be a distinctive substring of that task's title so the app can find it. Only set the fields the user actually clarified; leave the rest null.
 - save_memory: for durable facts about the person's life ("I got a dog that needs grooming every 4 weeks", "my home is in Austin"). DO NOT save one-off tasks as memories. "confirmation" chip like "Saved: dog grooming every 4 weeks".
 - add_anchor: ONLY for fixed-day-and-time commitments ("school pickup 3:30 M-F"). Not for vague "I try to work out mornings".

@@ -5,21 +5,18 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { parseTaskInput } from "@/lib/ai";
 import type { Task } from "@/types";
 
-function defaultTaskFields(): Omit<Task, "id" | "raw_input" | "title" | "urgency_flag" | "created_at"> {
+function defaultTaskFields(): Omit<Task, "id" | "raw_input" | "title" | "created_at"> {
   return {
     is_complete: false,
     completed_at: null,
     last_surfaced_at: null,
     snooze_until: null,
-    recurrence_rule: null,
     due_date: null,
-    scheduled_for: null,
     task_type: "unclassified",
     energy_level: null,
     window_start: null,
     window_end: null,
     is_self_care: false,
-    is_protected: false,
     parent_task_id: null,
     cadence: null,
     needs_classification: true,
@@ -30,7 +27,6 @@ function defaultTaskFields(): Omit<Task, "id" | "raw_input" | "title" | "urgency
 function withDefaults(t: Partial<Task> & Pick<Task, "id" | "title" | "created_at">): Task {
   return {
     raw_input: t.raw_input ?? t.title,
-    urgency_flag: t.urgency_flag ?? false,
     ...defaultTaskFields(),
     ...t,
   } as Task;
@@ -43,13 +39,22 @@ function uid(): string {
   return `t_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function migrateTask(t: Record<string, unknown>): Record<string, unknown> {
+  // Strip fields removed in the urgency/scheduling refactor
+  const { urgency_flag: _, scheduled_for: __, ...rest } = t as Record<string, unknown> & {
+    urgency_flag?: unknown;
+    scheduled_for?: unknown;
+  };
+  return rest;
+}
+
 async function loadTasks(): Promise<Task[]> {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
-    const parsed = JSON.parse(raw) as Task[];
+    const parsed = JSON.parse(raw) as Record<string, unknown>[];
     if (!Array.isArray(parsed)) return [];
-    return parsed.map((t) => withDefaults(t));
+    return parsed.map((t) => withDefaults(migrateTask(t) as Partial<Task> & Pick<Task, "id" | "title" | "created_at">));
   } catch (e) {
     console.log("[tasks] load error:", e);
     return [];
@@ -88,14 +93,16 @@ export const [TasksProvider, useTasks] = createContextHook(() => {
   }, []);
 
   const addMutation = useMutation({
-    mutationFn: async (raw: string) => parseTaskInput(raw, profile),
+    mutationFn: async ({ raw, now }: { raw: string; now: Date }) =>
+      parseTaskInput(raw, profile, now),
   });
 
   const addTask = useCallback(
     async (
       raw: string,
       opts?: {
-        scheduled_for?: Task["scheduled_for"];
+        due_date?: string | null;
+        snooze_until?: string | null;
         task_type?: Task["task_type"];
         energy_level?: Task["energy_level"];
         is_self_care?: boolean;
@@ -106,14 +113,14 @@ export const [TasksProvider, useTasks] = createContextHook(() => {
     ): Promise<Task> => {
       const trimmed = raw.trim();
       if (!trimmed) throw new Error("empty");
-      const now = new Date().toISOString();
+      const now = new Date();
       const optimistic: Task = withDefaults({
         id: uid(),
         raw_input: trimmed,
         title: trimmed,
-        urgency_flag: /\b(today|urgent|asap|now|immediately|by)\b/i.test(trimmed),
-        created_at: now,
-        scheduled_for: opts?.scheduled_for ?? null,
+        created_at: now.toISOString(),
+        due_date: opts?.due_date ?? null,
+        snooze_until: opts?.snooze_until ?? null,
         task_type: opts?.task_type ?? "unclassified",
         energy_level: opts?.energy_level ?? null,
         is_self_care: opts?.is_self_care ?? false,
@@ -130,7 +137,7 @@ export const [TasksProvider, useTasks] = createContextHook(() => {
       if (opts?.skipAiParse) return optimistic;
 
       try {
-        const parsed = await addMutation.mutateAsync(trimmed);
+        const parsed = await addMutation.mutateAsync({ raw: trimmed, now });
         const resolvedType: Task["task_type"] =
           opts?.task_type && opts.task_type !== "unclassified"
             ? opts.task_type
@@ -141,7 +148,8 @@ export const [TasksProvider, useTasks] = createContextHook(() => {
               ? {
                   ...t,
                   title: parsed.title,
-                  urgency_flag: parsed.urgency_flag,
+                  due_date: t.due_date ?? parsed.due_date ?? null,
+                  snooze_until: t.snooze_until ?? parsed.snooze_until ?? null,
                   task_type: resolvedType,
                   energy_level: t.energy_level ?? parsed.energy_level ?? null,
                   is_self_care: t.is_self_care || parsed.is_self_care === true,
@@ -158,7 +166,8 @@ export const [TasksProvider, useTasks] = createContextHook(() => {
         return {
           ...optimistic,
           title: parsed.title,
-          urgency_flag: parsed.urgency_flag,
+          due_date: optimistic.due_date ?? parsed.due_date ?? null,
+          snooze_until: optimistic.snooze_until ?? parsed.snooze_until ?? null,
           task_type: resolvedType,
           energy_level: optimistic.energy_level ?? parsed.energy_level ?? null,
           is_self_care: optimistic.is_self_care || parsed.is_self_care === true,

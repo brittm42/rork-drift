@@ -86,7 +86,8 @@ export const [ChatProvider, useChat] = createContextHook(() => {
         switch (action.kind) {
           case "add_task": {
             await addTask(action.raw, {
-              scheduled_for: action.scheduled_for,
+              due_date: action.due_date,
+              snooze_until: action.snooze_until,
               task_type: action.task_type,
               energy_level: action.energy_level,
               is_self_care: action.is_self_care,
