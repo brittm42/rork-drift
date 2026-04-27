@@ -357,7 +357,7 @@ export default function TodayScreen() {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       if (optId === "not_today") {
         removeFromPlan(task.id);
-        if (task.is_protected) {
+        if (task.is_self_care) {
           promptFollowUp({
             kind: "task_not_today_protected",
             title: task.title,
@@ -575,17 +575,12 @@ function TimelineRow({
           >
             {taskSkipped ? (
               <View style={styles.skipBar} />
-            ) : (
-              task.urgency_flag && <View style={styles.urgencyDot} />
-            )}
+            ) : null}
           </View>
         </TaskCheckable>
         <View style={styles.rowBody}>
           <View style={styles.rowMeta}>
             <Text style={styles.rowTime}>{item.timeLabel}</Text>
-            {task.urgency_flag && !taskSkipped && (
-              <Text style={styles.urgentTag}>urgent</Text>
-            )}
             {taskSkipped && <Text style={styles.skipTag}>missed</Text>}
           </View>
           <Text style={[styles.rowTitle, taskSkipped && styles.rowTitleFaded]}>
@@ -850,12 +845,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  urgencyDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: Colors.urgent,
-  },
   iconDot: {
     width: 22,
     height: 22,
@@ -877,12 +866,6 @@ const styles = StyleSheet.create({
     color: Colors.sageDeep,
     fontWeight: "700",
     fontVariant: ["tabular-nums"],
-  },
-  urgentTag: {
-    fontSize: 10,
-    letterSpacing: 1.2,
-    color: Colors.urgent,
-    fontWeight: "700",
   },
   ghostTag: {
     fontSize: 9,

@@ -136,10 +136,7 @@ export default function DrawerScreen() {
       map[t.task_type].push(t);
     }
     const sort = (arr: Task[]) =>
-      arr.sort((a, b) => {
-        if (a.urgency_flag !== b.urgency_flag) return a.urgency_flag ? -1 : 1;
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-      });
+      arr.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     (Object.keys(map) as SectionKey[]).forEach((k) => sort(map[k]));
     return map;
   }, [tasks]);
@@ -319,8 +316,6 @@ function TaskRow({
         <View style={[styles.checkBox, task.is_complete && styles.checkBoxDone]}>
           {task.is_complete ? (
             <Check size={12} color={Colors.paper} strokeWidth={3} />
-          ) : task.urgency_flag ? (
-            <View style={styles.urgencyDot} />
           ) : null}
         </View>
       </Pressable>
@@ -348,9 +343,6 @@ function TaskRow({
             )}
             <Text style={styles.metaText}>{meta.join(" · ")}</Text>
           </View>
-        )}
-        {task.urgency_flag && !task.is_complete && (
-          <Text style={styles.urgent}>urgent</Text>
         )}
       </View>
       <Pressable onPress={onDelete} style={styles.delBtn} hitSlop={10}>
@@ -471,12 +463,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.sageDeep,
     borderColor: Colors.sageDeep,
   },
-  urgencyDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: Colors.urgent,
-  },
   taskText: {
     fontSize: 15,
     color: Colors.ink,
@@ -516,13 +502,6 @@ const styles = StyleSheet.create({
     color: Colors.inkMuted,
     letterSpacing: 0.2,
     fontWeight: "500",
-  },
-  urgent: {
-    marginTop: 3,
-    fontSize: 10,
-    letterSpacing: 1.2,
-    color: Colors.urgent,
-    fontWeight: "700",
   },
   delBtn: { padding: 6 },
   empty: {
