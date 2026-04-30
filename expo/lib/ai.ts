@@ -45,7 +45,6 @@ const taskParseSchema = z.object({
       "fixed_anchor",
       "committed_block",
       "floatable",
-      "energy_matched",
       "reactive",
       "aspirational",
       "project",
@@ -145,14 +144,13 @@ Extract snooze_until (YYYY-MM-DD or null) — when to start surfacing this task.
 Classify task_type as ONE of:
 - fixed_anchor: non-negotiable, time-specific, recurring commitments (school pickup 3:30 M-F). Must have a clear fixed time and cadence.
 - committed_block: scheduled with a time in mind, user holds themselves to it, but could shift if needed (deep work block M/W/F, single booked appointment). Has some concreteness but user is sole accountable party.
-- floatable: needs to happen within a window but not at a specific time (order meds this week, follow up with recruiter). Slot into open time.
-- energy_matched: requires specific cognitive state (deep focus writing, hard conversation) or is fine while depleted (admin, scheduling).
+- floatable: needs to happen within a window but not at a specific time (order meds this week, follow up with recruiter, write performance review). Slot into open time. Use this for cognitively demanding tasks that have no fixed time — pair with energy_level: "deep".
 - reactive: follow-up spawned by another task/event (schedule 6mo dentist after dentist).
 - aspirational: wants-to-do, not committed (gym, reading, creative). No deadline, no fixed time.
 - project: a bigger undertaking that requires a planning session and multiple downstream tasks to finish (backyard overhaul, cleaning out the basement, redoing the portfolio site). Different from aspirational — projects are work that needs decomposition, not just protected time. If the user's input sounds project-sized, use this and set clarifying_question to something like "Want to plan this out together?" so we can break it into steps.
 - unclassified: truly ambiguous — use this if you aren't confident.
 
-energy_level: "deep" if cognitively heavy, "light" if fine while tired, null otherwise.
+energy_level: "deep" if cognitively heavy (writing, hard conversations, strategic decisions), "light" if fine while depleted (admin, scheduling, errands), null if not obvious. Always set this when cognitive state is clear — do NOT use a separate task_type for energy, use this field instead.
 is_self_care: true if this is self-care (gym, meditation, therapy, rest, walk, hobby time).
 cadence: short phrase like "every 6 weeks" if a recurrence is stated, null otherwise.
 clarifying_question: set ONE short question ONLY if you are genuinely unsure how to classify and the answer would materially change timing — e.g. "Is this a hard deadline or something you want to get to this week?". Null if confident. Never ask for trivia.
@@ -478,7 +476,6 @@ const chatActionSchema = z.object({
       "fixed_anchor",
       "committed_block",
       "floatable",
-      "energy_matched",
       "reactive",
       "aspirational",
       "project",
@@ -572,7 +569,7 @@ Your job is to produce:
 2) An "actions" array — structured things to do. One message can trigger multiple actions (e.g. answer + save_memory). Keep action count small.
 
 Action rules:
-- add_task: for any task capture. due_date is a YYYY-MM-DD hard deadline or null — resolve natural language using current time ("today" → ${now.toISOString().slice(0, 10)}, "tomorrow" → next day, "by Friday" → next Friday, etc.). snooze_until is a YYYY-MM-DD date to start surfacing the task, or null — use when user says "remind me Friday", "don't show until next week", etc. ALSO classify task_type and fill the other fields (energy_level, is_self_care, cadence) using the same definitions as the task parser: fixed_anchor | committed_block | floatable | energy_matched | reactive | aspirational | project | unclassified. If you're not sure, use unclassified and append ONE short follow-up question to the end of your message instead of inventing a classification. "confirmation" is a short chip label like "Added — due Friday".
+- add_task: for any task capture. due_date is a YYYY-MM-DD hard deadline or null — resolve natural language using current time ("today" → ${now.toISOString().slice(0, 10)}, "tomorrow" → next day, "by Friday" → next Friday, etc.). snooze_until is a YYYY-MM-DD date to start surfacing the task, or null — use when user says "remind me Friday", "don't show until next week", etc. ALSO classify task_type and fill the other fields (energy_level, is_self_care, cadence) using the same definitions as the task parser: fixed_anchor | committed_block | floatable | reactive | aspirational | project | unclassified. For cognitively heavy tasks with no fixed time, use floatable + energy_level: "deep". If you're not sure, use unclassified and append ONE short follow-up question to the end of your message instead of inventing a classification. "confirmation" is a short chip label like "Added — due Friday".
 - update_task: use when the user answers a classification follow-up about a recently added task. task_title_match should be a distinctive substring of that task's title so the app can find it. Only set the fields the user actually clarified; leave the rest null.
 - save_memory: for durable facts about the person's life ("I got a dog that needs grooming every 4 weeks", "my home is in Austin"). DO NOT save one-off tasks as memories. "confirmation" chip like "Saved: dog grooming every 4 weeks".
 - add_anchor: ONLY for fixed-day-and-time commitments ("school pickup 3:30 M-F"). Not for vague "I try to work out mornings".

@@ -40,11 +40,14 @@ function uid(): string {
 }
 
 function migrateTask(t: Record<string, unknown>): Record<string, unknown> {
-  // Strip fields removed in the urgency/scheduling refactor
   const { urgency_flag: _, scheduled_for: __, ...rest } = t as Record<string, unknown> & {
     urgency_flag?: unknown;
     scheduled_for?: unknown;
   };
+  if (rest.task_type === "energy_matched") {
+    rest.task_type = "floatable";
+    if (!rest.energy_level) rest.energy_level = "deep";
+  }
   return rest;
 }
 

@@ -74,13 +74,6 @@ const SECTIONS: SectionDef[] = [
     accent: Colors.sage,
   },
   {
-    key: "energy_matched",
-    label: TASK_TYPE_META.energy_matched.label,
-    blurb: TASK_TYPE_META.energy_matched.blurb,
-    icon: Battery,
-    accent: Colors.amber,
-  },
-  {
     key: "reactive",
     label: TASK_TYPE_META.reactive.label,
     blurb: TASK_TYPE_META.reactive.blurb,
@@ -118,7 +111,6 @@ export default function DrawerScreen() {
       fixed_anchor: [],
       committed_block: [],
       floatable: [],
-      energy_matched: [],
       reactive: [],
       aspirational: [],
       project: [],

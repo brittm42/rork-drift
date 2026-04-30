@@ -2,7 +2,6 @@ export type TaskType =
   | "fixed_anchor"
   | "committed_block"
   | "floatable"
-  | "energy_matched"
   | "reactive"
   | "aspirational"
   | "project"
@@ -47,10 +46,6 @@ export const TASK_TYPE_META: Record<
     label: "Floatable",
     blurb: "Needs to happen this week — slot into open time.",
   },
-  energy_matched: {
-    label: "Energy-matched",
-    blurb: "Timing depends on how much brain you have.",
-  },
   reactive: {
     label: "Follow-ups",
     blurb: "Downstream of something else. Captured so nothing falls through.",
@@ -69,7 +64,6 @@ export const TASK_TYPE_ORDER: Exclude<TaskType, "unclassified">[] = [
   "fixed_anchor",
   "committed_block",
   "floatable",
-  "energy_matched",
   "reactive",
   "aspirational",
   "project",
