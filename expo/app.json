@@ -21,7 +21,8 @@
         "NSLocationWhenInUseUsageDescription": "Drift uses your location to help you search for and save places.",
         "NSCalendarsUsageDescription": "Drift reads your calendar to plan your day around your commitments.",
         "NSRemindersUsageDescription": "Drift can add reminders to help you track tasks.",
-        "NSUserNotificationsUsageDescription": "Drift sends a morning plan notification so you know what's ahead."
+        "NSUserNotificationsUsageDescription": "Drift sends a morning plan notification so you know what's ahead.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {

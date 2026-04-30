@@ -1,14 +1,40 @@
-import { generateObject } from "ai";
-import { createAnthropic } from "@ai-sdk/anthropic";
 import { z } from "zod";
 import type { CalendarEventSnapshot, ChatAction, Task, UserProfile } from "@/types";
 
-const anthropic = createAnthropic({
-  apiKey: process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY,
-});
+const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
+const SONNET = "claude-sonnet-4-5";
+const HAIKU = "claude-haiku-4-5-20251001";
 
-const SONNET = anthropic("claude-sonnet-4-5");
-const HAIKU = anthropic("claude-haiku-4-5-20251001");
+async function generateStructured<T>(params: {
+  model: string;
+  schema: z.ZodType<T>;
+  prompt: string;
+}): Promise<T> {
+  const inputSchema = z.toJSONSchema(params.schema);
+  const response = await fetch(ANTHROPIC_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY ?? "",
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: params.model,
+      max_tokens: 4096,
+      tools: [{ name: "result", description: "Return the structured result", input_schema: inputSchema }],
+      tool_choice: { type: "tool", name: "result" },
+      messages: [{ role: "user", content: params.prompt }],
+    }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Anthropic API ${response.status}: ${text}`);
+  }
+  const data = await response.json();
+  const toolUse = data.content?.find((b: { type: string }) => b.type === "tool_use");
+  if (!toolUse) throw new Error("No structured response from model");
+  return params.schema.parse(toolUse.input);
+}
 
 const taskParseSchema = z.object({
   title: z.string(),
@@ -105,7 +131,7 @@ export async function parseTaskInput(raw: string, profile?: UserProfile, now?: D
   const today = (now ?? new Date()).toISOString().slice(0, 10);
   try {
     console.log("[ai] parseTaskInput:", raw);
-    const { object } = await generateObject({
+    const object = await generateStructured({
       model: HAIKU,
       schema: taskParseSchema,
       prompt: `Clean up this task and classify it for a personal planning system. Fix typos, normalize capitalization, make it a clear action item. Keep it concise and preserve intent exactly — do not add scope.
@@ -163,8 +189,7 @@ const planSchema = z.object({
         start_time: z.string().nullable(),
       })
     )
-    .min(1)
-    .max(7),
+,
 });
 
 export type GeneratedPlan = z.infer<typeof planSchema>;
@@ -236,7 +261,7 @@ Reason forward only — acknowledge what's left, never dwell on what didn't happ
     profile ? "yes" : "no"
   );
 
-  const { object } = await generateObject({
+  const object = await generateStructured({
     model: SONNET,
     schema: planSchema,
     prompt: baseInstructions + rerouteInstructions,
@@ -259,7 +284,7 @@ export async function generateMorningNotification(params: {
   hasEvents: boolean;
 }): Promise<{ title: string; body: string }> {
   try {
-    const { object } = await generateObject({
+    const object = await generateStructured({
       model: HAIKU,
       schema: notifSchema,
       prompt: `Write a calm, confident morning notification for Drift.
@@ -354,7 +379,7 @@ export async function extractOnboardingFacts(params: {
     follow_up_question: null,
   };
   try {
-    const { object } = await generateObject({
+    const object = await generateStructured({
       model: HAIKU,
       schema: onboardingExtractSchema,
       prompt: `You are extracting structured facts from a short reply during an onboarding chat for a personal planning app. Only return facts the user actually stated. If the reply is skip/none/unsure, return empty arrays and nulls. Never invent details. Use null (not empty string) when unknown.
@@ -384,7 +409,7 @@ Rules:
 
 const summarySchema = z.object({
   opener: z.string(),
-  bullets: z.array(z.string()).min(1).max(6),
+  bullets: z.array(z.string()),
   closer: z.string(),
 });
 
@@ -392,7 +417,7 @@ export type OnboardingSummary = z.infer<typeof summarySchema>;
 
 export async function summarizeOnboarding(profile: UserProfile): Promise<OnboardingSummary> {
   try {
-    const { object } = await generateObject({
+    const object = await generateStructured({
       model: HAIKU,
       schema: summarySchema,
       prompt: `Write a short, warm reflection for a personal planning app. You are confirming what you learned about the user during onboarding, so they feel understood. Tone: calm, confident, slightly warm. Never chipper, never clinical. Use "you" / "your".
@@ -429,118 +454,66 @@ Return:
 
 // ---- Conversational chat on Today ------------------------------------------
 
-const chatActionSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("answer") }),
-  z.object({
-    kind: z.literal("add_task"),
-    raw: z.string(),
-    due_date: z.string().nullable().default(null),
-    snooze_until: z.string().nullable().default(null),
-    task_type: z
-      .enum([
-        "fixed_anchor",
-        "committed_block",
-        "floatable",
-        "energy_matched",
-        "reactive",
-        "aspirational",
-        "project",
-        "unclassified",
-      ])
-      .default("unclassified"),
-    energy_level: z.enum(["deep", "light"]).nullable().default(null),
-    is_self_care: z.boolean().default(false),
-    cadence: z.string().nullable().default(null),
-    confirmation: z.string(),
-  }),
-  z.object({
-    kind: z.literal("update_task"),
-    task_title_match: z.string(),
-    task_type: z
-      .enum([
-        "fixed_anchor",
-        "committed_block",
-        "floatable",
-        "energy_matched",
-        "reactive",
-        "aspirational",
-        "project",
-      ])
-      .nullable(),
-    energy_level: z.enum(["deep", "light"]).nullable(),
-    is_self_care: z.boolean().nullable(),
-    cadence: z.string().nullable(),
-    confirmation: z.string(),
-  }),
-  z.object({
-    kind: z.literal("save_memory"),
-    text: z.string(),
-    category: z.enum([
-      "preference",
-      "fact",
-      "routine",
-      "health",
-      "relationship",
-      "other",
-    ]),
-    confirmation: z.string(),
-  }),
-  z.object({
-    kind: z.literal("add_anchor"),
-    title: z.string(),
-    time: z.string().nullable(),
-    days: z.array(WEEKDAYS),
-    buffer_minutes: z.number().nullable(),
-    confirmation: z.string(),
-  }),
-  z.object({
-    kind: z.literal("add_recurring"),
-    title: z.string(),
-    cadence: z.string(),
-    confirmation: z.string(),
-  }),
-  z.object({
-    kind: z.literal("add_rule"),
-    text: z.string(),
-    confirmation: z.string(),
-  }),
-  z.object({
-    kind: z.literal("add_household"),
-    name: z.string(),
-    relation: z.enum(["partner", "child", "pet", "other"]),
-    detail: z.string().nullable(),
-    confirmation: z.string(),
-  }),
-  z.object({
-    kind: z.literal("add_location"),
-    label: z.string(),
-    address: z.string().nullable(),
-    confirmation: z.string(),
-  }),
-  z.object({
-    kind: z.literal("do_reshape"),
-    summary: z.string(),
-  }),
-  z.object({
-    kind: z.literal("propose_reshape"),
-    summary: z.string(),
-    details: z.string(),
-  }),
-  z.object({
-    kind: z.literal("create_calendar_event"),
-    title: z.string(),
-    start_time: z.string(),
-    end_time: z.string(),
-    confirmation: z.string(),
-  }),
-]);
+const chatActionSchema = z.object({
+  kind: z.enum([
+    "answer",
+    "add_task",
+    "update_task",
+    "save_memory",
+    "add_anchor",
+    "add_recurring",
+    "add_rule",
+    "add_household",
+    "add_location",
+    "do_reshape",
+    "propose_reshape",
+    "create_calendar_event",
+  ]),
+  confirmation: z.string().optional(),
+  raw: z.string().optional(),
+  due_date: z.string().nullable().optional(),
+  snooze_until: z.string().nullable().optional(),
+  task_type: z
+    .enum([
+      "fixed_anchor",
+      "committed_block",
+      "floatable",
+      "energy_matched",
+      "reactive",
+      "aspirational",
+      "project",
+      "unclassified",
+    ])
+    .optional(),
+  energy_level: z.enum(["deep", "light"]).nullable().optional(),
+  is_self_care: z.boolean().optional(),
+  cadence: z.string().nullable().optional(),
+  task_title_match: z.string().optional(),
+  text: z.string().optional(),
+  category: z
+    .enum(["preference", "fact", "routine", "health", "relationship", "other"])
+    .optional(),
+  title: z.string().optional(),
+  time: z.string().nullable().optional(),
+  days: z.array(WEEKDAYS).optional(),
+  buffer_minutes: z.number().nullable().optional(),
+  name: z.string().optional(),
+  relation: z.enum(["partner", "child", "pet", "other"]).optional(),
+  detail: z.string().nullable().optional(),
+  label: z.string().optional(),
+  address: z.string().nullable().optional(),
+  summary: z.string().optional(),
+  details: z.string().optional(),
+  start_time: z.string().optional(),
+  end_time: z.string().optional(),
+});
 
 const chatResponseSchema = z.object({
   message: z.string(),
-  actions: z.array(chatActionSchema).max(5),
+  actions: z.array(chatActionSchema),
 });
 
-export type ChatResponse = z.infer<typeof chatResponseSchema>;
+export type ChatResponse = { message: string; actions: ChatAction[] };
 
 export async function chatTurn(params: {
   userMessage: string;
@@ -574,7 +547,8 @@ export async function chatTurn(params: {
     .join("\n");
 
   try {
-    const { object } = await generateObject({
+    console.log("[ai] chatTurn: calling generateStructured");
+    const object = await generateStructured({
       model: SONNET,
       schema: chatResponseSchema,
       prompt: `You are Drift — a calm, warm, slightly personal chief-of-staff for ${profile.name ?? "the user"}. You already know them; act like it. Use their name occasionally. Never chipper, never clinical. Reply in 1–2 short sentences unless a question genuinely needs more.
@@ -616,7 +590,8 @@ Hard rules:
 - Keep message calm and forward-looking. No emojis.
 - If user is vague ("plan me a better afternoon"), do a do_reshape with a concrete summary of what you'll try.`,
     });
-    return object;
+    console.log("[ai] chatTurn: got response");
+    return object as unknown as ChatResponse;
   } catch (e) {
     console.log("[ai] chatTurn failed:", e);
     return {
